@@ -3,7 +3,7 @@ use serenity::{
     model::gateway::Ready,
     prelude::*,
     framework::standard::{
-        CommandResult, macros::{group, help, check, hook},
+        macros::{group, help, check, hook},
         StandardFramework, CommandGroup
     },
 };
@@ -27,7 +27,7 @@ impl EventHandler for Handler {
 }
 
 #[group]
-#[commands(ping)]
+#[commands(ping, about)]
 struct General;
 
 #[tokio::main]
