@@ -2,6 +2,10 @@ use serenity::{
     async_trait, client,
     model::{channel::Message, gateway::Ready},
     prelude::*,
+    framework::standard::{
+        CommandResult, macros::command,
+        StandardFramework
+    }.
 };
 use std::{
     env, process,
@@ -17,13 +21,24 @@ impl EventHandler for Handler {
 
 #[tokio::main]
 async fn main() {
-    let mut bot = match Client::builder(&get_token()).event_handler(Handler).await {
+    
+    let framework = StandardFramework::new()
+        .configure(|c| c.prefix("`"));
+
+    let mut bot = match Client::builder(&get_token())
+        .event_handler(Handler)
+        .framework(framework).await
+        {
         Ok(c) => c,
         Err(e) => {
             eprintln!("Error creating the client: {}", e);
             process::exit(1);
         }
     };
+
+    if let Err(e) = bot.start().await {
+        eprintln!("Client error: {}", e);
+    }
 }
 
 fn get_token() -> String {
@@ -44,4 +59,10 @@ fn get_token() -> String {
     };
 
     token
+}
+
+#[command]
+async fn ping(ctx: &Context, msg: &Message) -> CommandResult {
+    msg.channel_id.say(&ctx.http, "Pong!").await?;
+    Ok(())
 }
