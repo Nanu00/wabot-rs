@@ -1,16 +1,21 @@
 use serenity::{
     async_trait, client,
-    model::{channel::Message, gateway::Ready},
+    model::gateway::Ready,
     prelude::*,
     framework::standard::{
-        CommandResult, macros::{command, group, help, check, hook},
+        CommandResult, macros::{group, help, check, hook},
         StandardFramework, CommandGroup
     },
 };
+
 use std::{
     env, process,
 };
+
 use tokio;
+
+mod botmods;
+use botmods::general::*;
 
 struct Handler;
 
@@ -67,11 +72,4 @@ fn get_token() -> String {
     };
 
     token
-}
-
-#[command]
-async fn ping(ctx: &Context, msg: &Message) -> CommandResult {
-    println!("Ponging");
-    msg.channel_id.say(&ctx.http, "Pong!").await?;
-    Ok(())
 }
