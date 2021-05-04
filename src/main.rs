@@ -1,8 +1,6 @@
 use serenity::{
     prelude::*,
-    framework::standard::{
-        StandardFramework,
-    },
+    framework::standard::StandardFramework
 };
 
 use std::process;
@@ -18,7 +16,15 @@ async fn main() {
         .configure(|c| c.prefix("`"))
         .group(&GENERAL_GROUP);
 
-    let mut bot = match Client::builder(&get_token())
+    let token = match get_token() {
+        Ok(t) => t,
+        Err(e) => {
+            eprintln!("Error getting the token: {}", e);
+            process::exit(1);
+        }
+    };
+
+    let mut bot = match Client::builder(&token)
         .event_handler(Handler)
         .framework(framework)
         .await

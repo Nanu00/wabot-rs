@@ -2,13 +2,10 @@ use serenity::{
     async_trait, client,
     model::gateway::Ready,
     prelude::*,
-    framework::standard::{
-        macros::{group, help, check, hook},
-        StandardFramework, CommandGroup
-    },
+    framework::standard::macros::group,
 };
 
-use std::{env, process};
+use std::{env, error};
 
 mod botmods;
 use botmods::general::*;
@@ -26,22 +23,8 @@ impl EventHandler for Handler {
 #[commands(ping, about)]
 struct General;
 
-pub fn get_token() -> String {
-    let token = match env::var("DISCORD_TOKEN") {
-        Ok(t) => t,
-        Err(e) => {
-            eprintln!("Error getting the token: {}", e);
-            process::exit(1);
-        }
-    };
-    
-    match client::validate_token(&token) {
-        Ok(_) => (),
-        Err(e) => {
-            eprintln!("Error getting the token: {}", e);
-            process::exit(1);
-        },
-    };
-
-    token
+pub fn get_token() -> Result<String, Box<dyn error::Error>> {
+    let token = env::var("DISCORD_TOKEN")?;
+    client::validate_token(&token)?;
+    Ok(token)
 }
