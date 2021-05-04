@@ -9,6 +9,7 @@ use std::{env, error};
 
 mod botmods;
 use botmods::general::*;
+use botmods::math::*;
 
 pub struct Handler;
 
@@ -22,6 +23,10 @@ impl EventHandler for Handler {
 #[group]
 #[commands(ping, about)]
 struct General;
+
+#[group]
+#[commands(ascii)]
+struct Math;
 
 pub fn get_token() -> Result<String, Box<dyn error::Error>> {
     let token = env::var("DISCORD_TOKEN")?;

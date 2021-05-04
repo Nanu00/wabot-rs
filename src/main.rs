@@ -1,6 +1,6 @@
 use serenity::{
     prelude::*,
-    framework::standard::StandardFramework
+    framework::standard::StandardFramework,
 };
 
 use std::process;
@@ -14,7 +14,8 @@ async fn main() {
     
     let framework = StandardFramework::new()
         .configure(|c| c.prefix("`"))
-        .group(&GENERAL_GROUP);
+        .group(&GENERAL_GROUP)
+        .group(&MATH_GROUP);
 
     let token = match get_token() {
         Ok(t) => t,
