@@ -11,12 +11,8 @@ use std::{
     process::Command,
     borrow::Cow,
 };
-use usvg::{
-    SystemFontDB,
-    Size,
-};
+#[allow(unused_imports)] use usvg::SystemFontDB;
 use usvg;
-use tokio::fs;
 use tiny_skia::Color;
 
 pub struct AsciiMath {
@@ -66,7 +62,7 @@ impl AsciiMath {
 }
 
 #[command]
-pub async fn ascii(ctx: &Context, msg: &Message, mut args: Args) -> CommandResult {
+pub async fn ascii(ctx: &Context, msg: &Message, args: Args) -> CommandResult {
     let asm_raw = match args.remains() {
         Some(r) => Ok(r),
         None => Err("No arguments provided"),
