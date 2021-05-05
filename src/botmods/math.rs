@@ -34,7 +34,7 @@ impl AsciiMath {
 
         let mj_cli = Command::new("sh")
             .arg("-c")
-            .arg(format!("$(npm bin)/am2svg {}", &asm))
+            .arg(format!("~/node_modules/.bin/am2svg {}", &asm))
             .output()?;
 
         println!("Ran MathJax: {}", mj_cli.stdout.len());
