@@ -4,52 +4,62 @@ use serenity::{
     framework::standard::
     {
         CommandResult, macros::command, Args,
-    }
+    },
+    http,
 };
 use std::{
     process::Command,
-    fs,
-    io::Write,
+    borrow::Cow,
 };
-use tempfile::tempfile;
-use usvg::SystemFontDB;
+use usvg::{
+    SystemFontDB,
+    Size,
+};
 use usvg;
+use tokio::fs;
+use tiny_skia::Color;
 
 pub struct AsciiMath {
-    raw: String,
-    file: fs::File,
+    text: String,
+    byte_data: Vec<u8>
 }
 
 impl AsciiMath {
-    pub fn asmpng(asm: &str) -> Result<AsciiMath, Box<dyn std::error::Error>> {
+    pub fn asmpng(asm: &str) -> Result<AsciiMath, Box<dyn std::error::Error + Send + Sync>> {
         let mut asm = String::from(asm);
-        asm.insert(0, '"');
-        asm.push('"');
+        asm.insert(0, '\'');
+        asm.push('\'');
 
-        let tmp = tempfile()?;
+        println!("Made string: {}", asm);
 
         let mut opt = usvg::Options::default();
         opt.fontdb.load_system_fonts();
         opt.fontdb.set_generic_families();
 
-        let mj_cli = Command::new("$(npm bin)/am2svg")
-            .arg(&asm)
+        let mj_cli = Command::new("sh")
+            .arg("-c")
+            .arg(format!("$(npm bin)/am2svg {}", &asm))
             .output()?;
 
-        let mj = String::from_utf8(mj_cli.stdout)?;
-        let svg_tree = usvg::Tree::from_str(&mj, &opt)?;
-        let pixmap_size = svg_tree.svg_node().size.to_screen_size();
-        let mut pixmap = tiny_skia::Pixmap::new(pixmap_size.width(), pixmap_size.height()).unwrap();
+        println!("Ran MathJax");
 
-        resvg::render(&svg_tree, usvg::FitTo::Original, pixmap.as_mut()).unwrap();
+        let svg_tree = usvg::Tree::from_data(&mj_cli.stdout, &opt)?;
+        let pixmap_size = svg_tree.svg_node().size.to_screen_size();
+        let mut pixmap = tiny_skia::Pixmap::new(pixmap_size.width()*4, pixmap_size.height()*4).unwrap();
+        pixmap.fill(Color::WHITE);
+
+        println!("Ready to render");
+
+        resvg::render(&svg_tree, usvg::FitTo::Zoom(4.0), pixmap.as_mut()).unwrap();
 
         let png_raw = pixmap.encode_png()?;
-        tmp.write_all(&png_raw)?;
+        
+        println!("Done");
 
         Ok(
             AsciiMath {
-                raw: asm,
-                file: tmp,
+                text: asm,
+                byte_data: png_raw,
             }
         )
     }
@@ -62,33 +72,17 @@ pub async fn ascii(ctx: &Context, msg: &Message, mut args: Args) -> CommandResul
         None => Err("No arguments provided"),
     }?;
 
-    let asm = AsciiMath::asmpng(asm_raw);
+    let asm = AsciiMath::asmpng(asm_raw)?;
 
-    // let mut asm = String::from(asm_raw);
-    // asm.insert(0, '"');
-    // asm.push('"');
-
-    // let mut tmp = tempfile()?;
-
-    // let mut opt = usvg::Options::default();
-    // opt.fontdb.load_system_fonts();
-    // opt.fontdb.set_generic_families();
-
-    // let mj_cli = Command::new("$(npm bin)/am2svg")
-    //     .arg(&asm)
-    //     .output()?;
-
-    // let mj = String::from_utf8(mj_cli.stdout)?;
-    // let svg_tree = usvg::Tree::from_str(&mj, &opt)?;
-    // let pixmap_size = svg_tree.svg_node().size.to_screen_size();
-    // let mut pixmap = tiny_skia::Pixmap::new(pixmap_size.width(), pixmap_size.height()).unwrap();
- 
-    // resvg::render(&svg_tree, usvg::FitTo::Original, pixmap.as_mut()).unwrap();
-
-    // let png_raw = pixmap.encode_png()?;
-    // tmp.write_all(&png_raw)?;
-
-    msg.channel_id.send_message(&ctx.http, |m| {m.content("Test")}).await?;
+    msg.channel_id.send_message(&ctx.http, |m| {
+        // m.content("Test");
+        m.add_file(
+            http::AttachmentType::Bytes {
+                data: Cow::from(asm.byte_data),
+                filename: String::from("testfile.png")
+            });
+        m
+    }).await?;
 
     Ok(())
 }
