@@ -37,7 +37,7 @@ impl AsciiMath {
             .arg(format!("$(npm bin)/am2svg {}", &asm))
             .output()?;
 
-        println!("Ran MathJax");
+        println!("Ran MathJax: {}", mj_cli.stdout.len());
 
         let svg_tree = usvg::Tree::from_data(&mj_cli.stdout, &opt)?;
         let pixmap_size = svg_tree.svg_node().size.to_screen_size();
