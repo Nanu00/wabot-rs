@@ -115,7 +115,7 @@ impl Latex {
 
         let _dvitex_cli = Command::new("sh")
             .arg("-c")
-            .arg(format!("latex -jobname=texput -output-directory={} '\\documentclass[preview,margin=1pt]{{standalone}} \\usepackage{{amsmath}} \\usepackage{{xcolor}} \\begin{{document}} \\color{{white}} \\begin{{equation*}} {} \\end{{equation*}} \\end{{document}}'", &tex_dir.path().to_str().unwrap(), &tex))
+            .arg(format!("latex -jobname=texput -output-directory={} '\\documentclass[preview,margin=1pt]{{standalone}} \\usepackage[utf8]{{inputenc}} \\usepackage{{mathtools}} \\usepackage{{siunitx}} \\usepackage[version=4]{{mhchem}} \\usepackage{{amsmath}} \\usepackage{{xcolor}} \\begin{{document}} \\color{{white}} \\begin{{equation*}} {} \\end{{equation*}} \\end{{document}}'", &tex_dir.path().to_str().unwrap(), &tex))
             .output()?;
 
         println!("dvi made {}\n{}", &tex_dir.path().join("texput.dvi").to_str().unwrap(), String::from_utf8(_dvitex_cli.stdout.clone()).unwrap());
