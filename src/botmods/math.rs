@@ -111,21 +111,21 @@ impl Latex {
             \\]
             \\end{document}";
 
-        // println!("tex string {}", tex);
+        println!("tex string {}", tex);
 
         let _dvitex_cli = Command::new("sh")
             .arg("-c")
             .arg(format!("latex -output-directory={} '\\documentclass[preview,margin=1pt]{{standalone}} \\usepackage{{amsmath}} \\usepackage{{xcolor}} \\begin{{document}} \\color{{white}} \\begin{{equation*}} {} \\end{{equation*}} \\end{{document}}'", &tex_dir.path().to_str().unwrap(), &tex))
             .output()?;
 
-        // println!("dvi made {}\n{}", &tex_dir.path().join("texput.dvi").to_str().unwrap(), String::from_utf8(_dvitex_cli.stdout.clone()).unwrap());
+        println!("dvi made {}\n{}", &tex_dir.path().join("texput.dvi").to_str().unwrap(), String::from_utf8(_dvitex_cli.stdout.clone()).unwrap());
 
         let dvisvg_cli = Command::new("sh")
             .arg("-c")
             .arg(format!("dvisvgm --page=1- -n --bbox=\"5pt\" -s {}", &tex_dir.path().join("texput.dvi").to_str().unwrap()))
             .output()?;
 
-        // println!("svg made");
+        println!("svg made");
 
         let mut opt = usvg::Options::default();
         opt.fontdb.load_system_fonts();
@@ -136,11 +136,11 @@ impl Latex {
         let mut pixmap = tiny_skia::Pixmap::new(pixmap_size.width()*4, pixmap_size.height()*4).unwrap();
         pixmap.fill(Color::BLACK);
 
-        // println!("ready to render");
+        println!("ready to render");
 
         resvg::render(&svg_tree, usvg::FitTo::Zoom(4.0), pixmap.as_mut()).unwrap();
 
-        // println!("rendered");
+        println!("rendered");
 
         let png_raw = pixmap.encode_png()?;
 
