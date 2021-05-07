@@ -25,7 +25,7 @@ impl EventHandler for Handler {
 struct General;
 
 #[group]
-#[commands(ascii)]
+#[commands(ascii, latex)]
 struct Math;
 
 pub fn get_token() -> Result<String, Box<dyn error::Error>> {
