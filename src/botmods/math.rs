@@ -60,7 +60,7 @@ async fn math_msg(ctx: &Context, c_id: &serenity::model::id::ChannelId, loading_
             e.description(format!("Input: {}", &math.get_plaintext()));
             e.footer(|f| {
                 f.icon_url(for_user.avatar_url().unwrap());
-                f.text(format!("Requested by {}", for_user.name));
+                f.text(format!("Requested by {}#{}", for_user.name, for_user.discriminator));
                 f
             });
             e
