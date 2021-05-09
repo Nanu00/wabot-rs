@@ -1,8 +1,14 @@
 use serenity::{
     async_trait, client,
-    model::gateway::Ready,
+    model::{
+        gateway::Ready,
+        channel::Message,
+    },
     prelude::*,
-    framework::standard::macros::group,
+    framework::standard::macros::{
+        group,
+        hook,
+    },
 };
 
 use std::{env, error};
@@ -12,6 +18,12 @@ use botmods::general::*;
 use botmods::math::*;
 
 pub struct Handler;
+
+pub fn get_token() -> Result<String, Box<dyn error::Error>> {
+    let token = env::var("DISCORD_TOKEN")?;
+    client::validate_token(&token)?;
+    Ok(token)
+}
 
 #[async_trait]
 impl EventHandler for Handler {
@@ -28,8 +40,7 @@ struct General;
 #[commands(ascii, latex)]
 struct Math;
 
-pub fn get_token() -> Result<String, Box<dyn error::Error>> {
-    let token = env::var("DISCORD_TOKEN")?;
-    client::validate_token(&token)?;
-    Ok(token)
+#[hook]
+pub async fn unknown_cmd(ctx: &Context, msg: &Message, u_cmd: &str) {
+    msg.channel_id.say(&ctx.http, format!("Command `{}` not found", &u_cmd)).await.expect("Unknown error");
 }

@@ -15,7 +15,8 @@ async fn main() {
     let framework = StandardFramework::new()
         .configure(|c| c.prefix("`"))
         .group(&GENERAL_GROUP)
-        .group(&MATH_GROUP);
+        .group(&MATH_GROUP)
+        .unrecognised_command(unknown_cmd);
 
     let token = match get_token() {
         Ok(t) => t,
