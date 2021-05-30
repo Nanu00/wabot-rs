@@ -2,11 +2,8 @@ use serenity::{
     prelude::*,
     framework::standard::StandardFramework,
 };
-
 use std::process;
-
 use tokio;
-
 use wabot::*;
 
 #[tokio::main]

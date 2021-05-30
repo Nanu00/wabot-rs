@@ -15,27 +15,28 @@ use std::{
 use usvg;
 use tiny_skia::Color;
 use tempfile;
+use crate::botmods::errors;
 
 
-trait Math {
+trait MathSnip {
     fn get_img_bytes(&self) -> &Vec<u8>;
     fn get_plaintext(&self) -> &str;
 }
 
 
-fn svgpng(svg_data: &Vec<u8>) -> Result<Vec<u8>, Box<dyn std::error::Error + Sync + Send>> {
+fn svgpng(svg_data: &[u8]) -> Result<Vec<u8>, errors::Error> {
         let mut opt = usvg::Options::default();
         opt.fontdb.load_system_fonts();
         opt.fontdb.set_generic_families();
 
         let svg_tree = usvg::Tree::from_data(svg_data, &opt)?;
         let pixmap_size = svg_tree.svg_node().size.to_screen_size();
-        let mut pixmap = tiny_skia::Pixmap::new(pixmap_size.width()*4, pixmap_size.height()*4).unwrap();
-        pixmap.fill(Color::BLACK);
+        let mut pixmap = tiny_skia::Pixmap::new(pixmap_size.width()*8, pixmap_size.height()*8).unwrap();
+        pixmap.fill(Color::TRANSPARENT);
 
         // println!("Ready to render");
 
-        resvg::render(&svg_tree, usvg::FitTo::Zoom(4.0), pixmap.as_mut()).unwrap();
+        resvg::render(&svg_tree, usvg::FitTo::Zoom(8.0), pixmap.as_mut()).unwrap();
 
         Ok(
             pixmap.encode_png()?
@@ -51,7 +52,7 @@ async fn loading_msg(ctx: &Context, c_id: &serenity::model::id::ChannelId) -> Re
 }
 
 
-async fn math_msg(ctx: &Context, c_id: &serenity::model::id::ChannelId, loading_msg: &Message, for_user: &serenity::model::user::User, math: impl Math) -> Result<Message, SerenityError> {
+async fn math_msg(ctx: &Context, c_id: &serenity::model::id::ChannelId, loading_msg: &Message, for_user: &serenity::model::user::User, math: impl MathSnip) -> Result<Message, SerenityError> {
     loading_msg.delete(&ctx.http).await?;
 
     c_id.send_message(&ctx.http, |m|{
@@ -84,7 +85,7 @@ pub struct AsciiMath {
     png_bytes: Vec<u8>
 }
 
-impl Math for AsciiMath {
+impl MathSnip for AsciiMath {
     fn get_img_bytes(&self) -> &Vec<u8> {
         &self.png_bytes
     }
@@ -94,7 +95,7 @@ impl Math for AsciiMath {
 }
 
 impl AsciiMath {
-    pub fn asmpng(asm: &str) -> Result<AsciiMath, Box<dyn std::error::Error + Send + Sync>> {
+    pub fn asmpng(asm: &str) -> Result<AsciiMath, errors::Error> {
         let mut asm = String::from(asm);
         asm.insert(0, '\'');
         asm.push('\'');
@@ -147,7 +148,7 @@ struct Latex {
     png_bytes: Vec<u8>,
 }
 
-impl Math for Latex {
+impl MathSnip for Latex {
     fn get_img_bytes(&self) -> &Vec<u8> {
         &self.png_bytes
     }
@@ -157,7 +158,7 @@ impl Math for Latex {
 }
 
 impl Latex {
-    pub fn texpng(tex: &str) -> Result<Latex, Box<dyn std::error::Error + Send + Sync>> {
+    pub fn texpng(tex: &str) -> Result<Latex, errors::Error> {
         let tex_dir = tempfile::TempDir::new()?;
 
         // println!("tex string {}", tex);
@@ -171,7 +172,7 @@ impl Latex {
 
         let dvisvg_cli = Command::new("sh")
             .arg("-c")
-            .arg(format!("dvisvgm --page=1- -n --bbox=\"5pt\" -s {}", &tex_dir.path().join("texput.dvi").to_str().unwrap()))
+            .arg(format!("dvisvgm --page=1- -n --bbox=\"2pt\" -s {}", &tex_dir.path().join("texput.dvi").to_str().unwrap()))
             .output()?;
 
         // println!("svg made");
