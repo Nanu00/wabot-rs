@@ -233,17 +233,5 @@ pub async fn latex(ctx: &Context, msg: &Message, args: Args) -> CommandResult {
 
     math_msg(ctx, &msg.channel_id, &lm, &msg.author, latex).await?;
 
-    // msg.channel_id.send_message(&ctx.http, |m| {
-    //     // m.content("Test");
-    //     m.add_file(
-    //         http::AttachmentType::Bytes {
-    //             data: Cow::from(latex.png_bytes),
-    //             filename: String::from("testfile.png")
-    //         }
-    //         // http::AttachmentType::File {file: &latex.png_file, filename: String::from("test.png")}
-    //         );
-    //     m
-    // }).await?;
-
     Ok(())
 }

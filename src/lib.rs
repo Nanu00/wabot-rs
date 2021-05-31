@@ -33,7 +33,7 @@ impl EventHandler for Handler {
 }
 
 #[group]
-#[commands(ping, about)]
+#[commands(ping, about, invite)]
 struct General;
 
 #[group]
