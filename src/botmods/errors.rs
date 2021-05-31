@@ -13,6 +13,7 @@ pub enum Error {
     SVGError(usvg::Error),
     PNGError(png::EncodingError),
     IOError(io::Error),
+    ArgError(u8, u8),
 }
 
 impl From<usvg::Error> for Error {
@@ -39,6 +40,7 @@ impl Display for Error {
             Error::SVGError(e) => f.write_str(&format!("Error making the SVG: {}", e)),
             Error::PNGError(e) => f.write_str(&format!("Error making the PNG: {}", e)),
             Error::IOError(e) => f.write_str(&format!("I/O error: {}", e)),
+            Error::ArgError(rec, need) => f.write_str(&format!("Expected {} argument(s), recieved {}", need, rec)),
         }
     }
 }

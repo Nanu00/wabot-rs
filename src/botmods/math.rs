@@ -76,6 +76,23 @@ async fn math_msg(ctx: &Context, c_id: &serenity::model::id::ChannelId, loading_
     }).await
 }
 
+pub async fn err_msg(ctx: &Context, c_id: &serenity::model::id::ChannelId, loading_msg: &Message, for_user: &serenity::model::user::User, er: &errors::Error) -> Result<Message, SerenityError> {
+    loading_msg.delete(&ctx.http).await?;
+    
+    c_id.send_message(&ctx.http, |m|{
+        m.embed(|e| {
+            e.title("Error");
+            e.description(format!("There was an error: {}", er));
+            e.footer(|f| {
+                f.icon_url(for_user.avatar_url().unwrap());
+                f.text(format!("Requested by {}#{}", for_user.name, for_user.discriminator));
+                f
+            });
+            e
+        });
+        m
+    }).await
+}
 
 
 // AsciiMath
@@ -109,7 +126,10 @@ impl AsciiMath {
 
         // println!("Ran MathJax: {}", mj_cli.stdout.len());
 
-        let png_raw = svgpng(&mj_cli.stdout)?;
+        let png_raw = match svgpng(&mj_cli.stdout) {
+            Ok(r) => r,
+            Err(e) => return Err(e),
+        };
         
         // println!("Done");
 
@@ -129,7 +149,11 @@ pub async fn ascii(ctx: &Context, msg: &Message, args: Args) -> CommandResult {
 
     let asm_raw = match args.remains() {
         Some(r) => Ok(r),
-        None => Err("No arguments provided"),
+        None => {
+            let er = errors::Error::ArgError(1, 0);
+            err_msg(ctx, &msg.channel_id, &lm, &msg.author, &er).await?;
+            Err(er)
+        },
     }?;
 
     let asm = AsciiMath::asmpng(asm_raw)?;
@@ -177,7 +201,10 @@ impl Latex {
 
         // println!("svg made");
 
-        let png_raw = svgpng(&dvisvg_cli.stdout)?;
+        let png_raw = match svgpng(&dvisvg_cli.stdout) {
+            Ok(r) => r,
+            Err(e) => return Err(e),
+        };
 
         Ok(
             Latex {
@@ -195,7 +222,11 @@ pub async fn latex(ctx: &Context, msg: &Message, args: Args) -> CommandResult {
 
     let latex_raw = match args.remains() {
         Some(r) => Ok(r),
-        None => Err("No arguments provided"),
+        None => {
+            let er = errors::Error::ArgError(1, 0);
+            err_msg(ctx, &msg.channel_id, &lm, &msg.author, &er).await?;
+            Err(er)
+        },
     }?;
 
     let latex = Latex::texpng(latex_raw)?;
