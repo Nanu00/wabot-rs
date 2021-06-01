@@ -11,6 +11,7 @@ usvg = "0.14.1"
 tempfile = "3.2.0"
 tiny-skia = "0.5.1"
 png = "*"
+regex = "1.5.4"
 
 [dependencies.tokio]
 version = "1.0"

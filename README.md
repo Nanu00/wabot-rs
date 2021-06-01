@@ -21,7 +21,6 @@ Assuming you already have Rust and Cargo installed,
 + Latex
 + mathjax-node-cli
 + dvisvgm
-+ sed (to be replaced by Rust code soon)
 
 ### To build
 Use Cargo

@@ -14,6 +14,7 @@ pub enum Error {
     PNGError(png::EncodingError),
     IOError(io::Error),
     ArgError(u8, u8),
+    LatexError(String),
 }
 
 impl From<usvg::Error> for Error {
@@ -41,6 +42,7 @@ impl Display for Error {
             Error::PNGError(e) => f.write_str(&format!("Error making the PNG: {}", e)),
             Error::IOError(e) => f.write_str(&format!("I/O error: {}", e)),
             Error::ArgError(rec, need) => f.write_str(&format!("Expected {} argument(s), recieved {}", need, rec)),
+            Error::LatexError(e) => f.write_str(&format!("Latex compilation error:\n```{}```", e)),
         }
     }
 }

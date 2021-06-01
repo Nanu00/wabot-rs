@@ -16,6 +16,7 @@ use usvg;
 use tiny_skia::Color;
 use tempfile;
 use crate::botmods::errors;
+use regex::Regex;
 
 
 trait MathSnip {
@@ -32,7 +33,7 @@ fn svgpng(svg_data: &[u8]) -> Result<Vec<u8>, errors::Error> {
         let svg_tree = usvg::Tree::from_data(svg_data, &opt)?;
         let pixmap_size = svg_tree.svg_node().size.to_screen_size();
         let mut pixmap = tiny_skia::Pixmap::new(pixmap_size.width()*8, pixmap_size.height()*8).unwrap();
-        pixmap.fill(Color::TRANSPARENT);
+        pixmap.fill(Color::BLACK);
 
         // println!("Ready to render");
 
@@ -82,7 +83,7 @@ pub async fn err_msg(ctx: &Context, c_id: &serenity::model::id::ChannelId, loadi
     c_id.send_message(&ctx.http, |m|{
         m.embed(|e| {
             e.title("Error");
-            e.description(format!("There was an error: {}", er));
+            e.description(format!("There was an error:\n{}", er));
             e.footer(|f| {
                 f.icon_url(for_user.avatar_url().unwrap());
                 f.text(format!("Requested by {}#{}", for_user.name, for_user.discriminator));
@@ -121,12 +122,16 @@ impl AsciiMath {
 
         let mj_cli = Command::new("sh")
             .arg("-c")
-            .arg(format!("~/node_modules/.bin/am2svg {} | sed -e 's/currentColor/white/g'", &asm))
+            .arg(format!("~/node_modules/.bin/am2svg {}", &asm))
             .output()?;
 
-        // println!("Ran MathJax: {}", mj_cli.stdout.len());
+        // println!("Ran MathJax: {}", &mj_cli.stdout.len());
 
-        let png_raw = match svgpng(&mj_cli.stdout) {
+        let svg_raw = String::from_utf8(mj_cli.stdout).unwrap();
+        let color_re = Regex::new("currentColor").unwrap();
+        let svg_raw = color_re.replace_all(&svg_raw, "white");
+
+        let png_raw = match svgpng(svg_raw.as_bytes()) {
             Ok(r) => r,
             Err(e) => return Err(e),
         };
@@ -187,10 +192,21 @@ impl Latex {
 
         // println!("tex string {}", tex);
 
-        let _dvitex_cli = Command::new("sh")
+        let dvitex_cli = Command::new("sh")
             .arg("-c")
-            .arg(format!("latex -jobname=texput -output-directory={} '\\documentclass[preview,margin=1pt]{{standalone}} \\usepackage[utf8]{{inputenc}} \\usepackage{{mathtools}} \\usepackage{{siunitx}} \\usepackage[version=4]{{mhchem}} \\usepackage{{amsmath}} \\usepackage{{xcolor}} \\begin{{document}} \\color{{white}} \\begin{{equation*}} {} \\end{{equation*}} \\end{{document}}'", &tex_dir.path().to_str().unwrap(), &tex))
+            .arg(format!("latex -interaction=nonstopmode -jobname=texput -output-directory={} '\\documentclass[preview,margin=1pt]{{standalone}} \\usepackage[utf8]{{inputenc}} \\usepackage{{mathtools}} \\usepackage{{siunitx}} \\usepackage[version=4]{{mhchem}} \\usepackage{{amsmath}} \\usepackage{{xcolor}} \\begin{{document}} \\color{{white}} \\begin{{equation*}} {} \\end{{equation*}} \\end{{document}}'", &tex_dir.path().to_str().unwrap(), &tex))
             .output()?;
+        
+        if !(dvitex_cli.status.success()) {
+            let err = String::from_utf8(dvitex_cli.stdout).unwrap();
+            let useless = Regex::new(r"(?m)(^\(.+$\n)|(^This is .*$\n)|(^Document Class.*$\n)|(^No file.*$\n)|(^.* written on .*\.$\n)|(^\[1\].*$\n)|(^For additional .*$\n)|(^LaTeX2e .*$\n)|(^Preview.*$\n)|(^L3.*$\n)|(^ restricted \\write18 enabled\.$\n)|(^entering extended mode$\n)|(^dalone$\n)|(^\.dict\)$\n)").unwrap();
+            
+            let err = useless.replace_all(&err, "").to_string();
+            
+            println!("{}", &err);
+            
+            return Err(errors::Error::LatexError(err));
+        }
 
         // println!("dvi made {}\n{}", &tex_dir.path().join("texput.dvi").to_str().unwrap(), String::from_utf8(_dvitex_cli.stdout.clone()).unwrap());
 
@@ -200,18 +216,21 @@ impl Latex {
             .output()?;
 
         // println!("svg made");
+        if dvisvg_cli.status.success() {
+            let png_raw = match svgpng(&dvisvg_cli.stdout) {
+                Ok(r) => r,
+                Err(e) => return Err(e),
+            };
 
-        let png_raw = match svgpng(&dvisvg_cli.stdout) {
-            Ok(r) => r,
-            Err(e) => return Err(e),
-        };
-
-        Ok(
-            Latex {
-                text: String::from(tex),
-                png_bytes: png_raw,
-            }
-            )
+            Ok(
+                Latex {
+                    text: String::from(tex),
+                    png_bytes: png_raw,
+                }
+                )
+        } else {
+            Err(errors::Error::LatexError(String::from_utf8(dvisvg_cli.stderr).unwrap()))
+        }
     }
 }
 
@@ -229,9 +248,10 @@ pub async fn latex(ctx: &Context, msg: &Message, args: Args) -> CommandResult {
         },
     }?;
 
-    let latex = Latex::texpng(latex_raw)?;
-
-    math_msg(ctx, &msg.channel_id, &lm, &msg.author, latex).await?;
+    let _latex = match Latex::texpng(latex_raw) {
+        Ok(l) => math_msg(ctx, &msg.channel_id, &lm, &msg.author, l).await?,
+        Err(e) => err_msg(ctx, &msg.channel_id, &lm, &msg.author, &e).await?,
+    };
 
     Ok(())
 }
