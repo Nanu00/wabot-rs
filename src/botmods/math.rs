@@ -203,7 +203,7 @@ impl Latex {
 
         let dvitex_cli = Command::new("sh")
             .arg("-c")
-            .arg(format!("latex -interaction=nonstopmode -jobname=texput -output-directory={} '\\documentclass[preview,margin=1pt]{{standalone}} \\usepackage[utf8]{{inputenc}} \\usepackage{{mathtools}} \\usepackage{{siunitx}} \\usepackage[version=4]{{mhchem}} \\usepackage{{amsmath}} \\usepackage{{xcolor}} \\begin{{document}} \\color{{white}} \\begin{{equation*}} {} \\end{{equation*}} \\end{{document}}'", &tex_dir.path().to_str().unwrap(), &tex))
+            .arg(format!("latex -interaction=nonstopmode -jobname=texput -output-directory={} '\\documentclass[preview,margin=1pt]{{standalone}} \\usepackage[utf8]{{inputenc}} \\usepackage{{mathtools}} \\usepackage{{siunitx}} \\usepackage[version=4]{{mhchem}} \\usepackage{{amsmath}} \\usepackage{{xcolor}} \\begin{{document}} \\color{{white}} {} \\end{{document}}'", &tex_dir.path().to_str().unwrap(), &tex))
             .output();
         
         let dvitex_cli = dvitex_cli.await?;
@@ -267,4 +267,16 @@ pub async fn latex(ctx: &Context, msg: &Message, args: Args) -> CommandResult {
     };
 
     Ok(())
+}
+
+pub async fn inline_latex(ctx: &Context, msg: &Message) {
+    let re_tex = Regex::new(r"(\$.*\$)|(\[.*\])|(\(.*\))").unwrap();
+
+    if re_tex.is_match(&msg.content) {
+        let lm = loading_msg(ctx, &msg.channel_id).await.unwrap();
+        let _latex = match Latex::texpng(&msg.content).await {
+            Ok(l) => math_msg(ctx, &msg.channel_id, &lm, &msg.author, l).await,
+            Err(e) => err_msg(ctx, &msg.channel_id, &lm, &msg.author, &e).await,
+        };
+    }
 }

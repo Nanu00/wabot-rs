@@ -30,6 +30,10 @@ impl EventHandler for Handler {
     async fn ready(&self, _: Context, ready: Ready) {
         println!("Connected as {}", ready.user.name);
     }
+    
+    async fn message(&self, ctx: Context, msg: Message) {
+        inline_latex(&ctx, &msg).await;
+    }
 }
 
 #[group]
