@@ -11,12 +11,14 @@ use serenity::{
 };
 
 #[command]
+#[description = "Simple command to check if the bot is online"]
 pub async fn ping(ctx: &Context, msg: &Message) -> CommandResult {
     msg.channel_id.say(&ctx.http, "Pong!").await?;
     Ok(())
 }
 
 #[command]
+#[description = "About the bot"]
 pub async fn about(ctx: &Context, msg: &Message) -> CommandResult {
     let curr_user = ctx.cache.current_user().await;
     
@@ -37,6 +39,7 @@ pub async fn about(ctx: &Context, msg: &Message) -> CommandResult {
 }
 
 #[command]
+#[description = "Get an invite link!"]
 pub async fn invite(ctx: &Context, msg: &Message) -> CommandResult {
     let curr_user = ctx.cache.current_user().await;
     match curr_user.invite_url(&ctx.http, Permissions::from_bits(392256).unwrap()).await {

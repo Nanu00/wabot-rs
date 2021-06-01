@@ -156,6 +156,7 @@ impl AsciiMath {
 }
 
 #[command]
+#[description = "Use this command to compile ASCIIMath to a PNG"]
 pub async fn ascii(ctx: &Context, msg: &Message, args: Args) -> CommandResult {
 
     let lm = loading_msg(ctx, &msg.channel_id).await?;
@@ -248,6 +249,7 @@ impl Latex {
 }
 
 #[command]
+#[description = "Use this command to compile LaTeX to a PNG"]
 pub async fn latex(ctx: &Context, msg: &Message, args: Args) -> CommandResult {
 
     let lm = loading_msg(ctx, &msg.channel_id).await?;

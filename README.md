@@ -8,7 +8,7 @@ A discord bot in Rust to fetch steps from Wolfram|Alpha, and compile LaTeX snipp
   - [Usage](#usage)
   - [Goals](#goals)
     - [Priority](#priority)
-    - [Might implement](#might-implement)
+    - [*Might* implement](#might-implement)
   - [Contributing](#contributing)
   - [License](#license)
 
@@ -43,7 +43,7 @@ DISCORD_TOKEN=<Token> cargo run
 + [x] AsciiMath snippets
 + [ ] Images from Wolfram|Alpha
 + [ ] Wolfram|Alpha to AsciiMath/MathML
-### Might implement
+### *Might* implement
 + [ ] Basic calculator
 + [ ] Graphing
 

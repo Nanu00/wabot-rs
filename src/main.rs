@@ -9,9 +9,10 @@ use wabot::*;
 async fn main() {
     
     let framework = StandardFramework::new()
-        .configure(|c| c.prefix("`"))
+        .configure(|c| c.prefix("^"))
         .group(&GENERAL_GROUP)
         .group(&MATH_GROUP)
+        .help(&HELP)
         .unrecognised_command(unknown_cmd);
 
     let token = match get_token() {
