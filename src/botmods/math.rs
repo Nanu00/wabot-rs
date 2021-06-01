@@ -7,16 +7,14 @@ use serenity::{
     },
     http,
 };
-use std::{
-    process::Command,
-    borrow::Cow,
-};
+use std::borrow::Cow;
 #[allow(unused_imports)] use usvg::SystemFontDB;
 use usvg;
 use tiny_skia::Color;
 use tempfile;
 use crate::botmods::errors;
 use regex::Regex;
+use tokio::process::Command;
 
 
 trait MathSnip {
@@ -113,7 +111,7 @@ impl MathSnip for AsciiMath {
 }
 
 impl AsciiMath {
-    pub fn asmpng(asm: &str) -> Result<AsciiMath, errors::Error> {
+    pub async fn asmpng(asm: &str) -> Result<AsciiMath, errors::Error> {
         let mut asm = String::from(asm);
         asm.insert(0, '\'');
         asm.push('\'');
@@ -123,7 +121,9 @@ impl AsciiMath {
         let mj_cli = Command::new("sh")
             .arg("-c")
             .arg(format!("~/node_modules/.bin/am2svg {}", &asm))
-            .output()?;
+            .output();
+
+        let mj_cli = mj_cli.await?;
 
         // println!("Ran MathJax: {}", &mj_cli.stdout.len());
 
@@ -161,7 +161,7 @@ pub async fn ascii(ctx: &Context, msg: &Message, args: Args) -> CommandResult {
         },
     }?;
 
-    let asm = AsciiMath::asmpng(asm_raw)?;
+    let asm = AsciiMath::asmpng(asm_raw).await?;
 
     math_msg(ctx, &msg.channel_id, &lm, &msg.author, asm).await?;
 
@@ -187,7 +187,7 @@ impl MathSnip for Latex {
 }
 
 impl Latex {
-    pub fn texpng(tex: &str) -> Result<Latex, errors::Error> {
+    pub async fn texpng(tex: &str) -> Result<Latex, errors::Error> {
         let tex_dir = tempfile::TempDir::new()?;
 
         // println!("tex string {}", tex);
@@ -195,7 +195,9 @@ impl Latex {
         let dvitex_cli = Command::new("sh")
             .arg("-c")
             .arg(format!("latex -interaction=nonstopmode -jobname=texput -output-directory={} '\\documentclass[preview,margin=1pt]{{standalone}} \\usepackage[utf8]{{inputenc}} \\usepackage{{mathtools}} \\usepackage{{siunitx}} \\usepackage[version=4]{{mhchem}} \\usepackage{{amsmath}} \\usepackage{{xcolor}} \\begin{{document}} \\color{{white}} \\begin{{equation*}} {} \\end{{equation*}} \\end{{document}}'", &tex_dir.path().to_str().unwrap(), &tex))
-            .output()?;
+            .output();
+        
+        let dvitex_cli = dvitex_cli.await?;
         
         if !(dvitex_cli.status.success()) {
             let err = String::from_utf8(dvitex_cli.stdout).unwrap();
@@ -211,9 +213,11 @@ impl Latex {
         // println!("dvi made {}\n{}", &tex_dir.path().join("texput.dvi").to_str().unwrap(), String::from_utf8(_dvitex_cli.stdout.clone()).unwrap());
 
         let dvisvg_cli = Command::new("sh")
-            .arg("-c")
-            .arg(format!("dvisvgm --page=1- -n --bbox=\"2pt\" -s {}", &tex_dir.path().join("texput.dvi").to_str().unwrap()))
-            .output()?;
+        .arg("-c")
+        .arg(format!("dvisvgm --page=1- -n --bbox=\"2pt\" -s {}", &tex_dir.path().join("texput.dvi").to_str().unwrap()))
+        .output();
+        
+        let dvisvg_cli = dvisvg_cli.await?;
 
         // println!("svg made");
         if dvisvg_cli.status.success() {
@@ -248,7 +252,7 @@ pub async fn latex(ctx: &Context, msg: &Message, args: Args) -> CommandResult {
         },
     }?;
 
-    let _latex = match Latex::texpng(latex_raw) {
+    let _latex = match Latex::texpng(latex_raw).await {
         Ok(l) => math_msg(ctx, &msg.channel_id, &lm, &msg.author, l).await?,
         Err(e) => err_msg(ctx, &msg.channel_id, &lm, &msg.author, &e).await?,
     };
