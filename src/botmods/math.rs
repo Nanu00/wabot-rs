@@ -124,6 +124,12 @@ impl AsciiMath {
             .output();
 
         let mj_cli = mj_cli.await?;
+        
+        if !(mj_cli.status.success()) {
+            let err = String::from_utf8(mj_cli.stderr).unwrap();
+            println!("{}", &err);
+            return Err(errors::Error::AsciiMError(err));
+        }
 
         // println!("Ran MathJax: {}", &mj_cli.stdout.len());
 
@@ -161,9 +167,10 @@ pub async fn ascii(ctx: &Context, msg: &Message, args: Args) -> CommandResult {
         },
     }?;
 
-    let asm = AsciiMath::asmpng(asm_raw).await?;
-
-    math_msg(ctx, &msg.channel_id, &lm, &msg.author, asm).await?;
+    let _asm = match AsciiMath::asmpng(asm_raw).await {
+        Ok(a) => math_msg(ctx, &msg.channel_id, &lm, &msg.author, a).await?,
+        Err(e) => err_msg(ctx, &msg.channel_id, &lm, &msg.author, &e).await?,
+    };
 
     Ok(())
 }

@@ -15,6 +15,7 @@ pub enum Error {
     IOError(io::Error),
     ArgError(u8, u8),
     LatexError(String),
+    AsciiMError(String),
 }
 
 impl From<usvg::Error> for Error {
@@ -43,6 +44,7 @@ impl Display for Error {
             Error::IOError(e) => f.write_str(&format!("I/O error: {}", e)),
             Error::ArgError(rec, need) => f.write_str(&format!("Expected {} argument(s), recieved {}", need, rec)),
             Error::LatexError(e) => f.write_str(&format!("Latex compilation error:\n```{}```", e)),
+            Error::AsciiMError(e) => f.write_str(&format!("AsciiMath compilation error:\n```{}```", e)),
         }
     }
 }
