@@ -112,15 +112,17 @@ impl MathSnip for AsciiMath {
 
 impl AsciiMath {
     pub async fn asmpng(asm: &str) -> Result<AsciiMath, errors::Error> {
-        let mut asm = String::from(asm);
-        asm.insert(0, '\'');
-        asm.push('\'');
+        let asm = String::from(asm);
+        
+        let apos_escape = Regex::new("\"").unwrap();
+        
+        let asm = apos_escape.replace_all(&asm, "\\\"").to_string();
 
         // println!("Made string: {}", asm);
 
         let mj_cli = Command::new("sh")
             .arg("-c")
-            .arg(format!("~/node_modules/.bin/am2svg {}", &asm))
+            .arg(format!("~/node_modules/.bin/am2svg \"{}\"", &asm))
             .output();
 
         let mj_cli = mj_cli.await?;
