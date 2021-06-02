@@ -1,4 +1,5 @@
-use reqwest::async::Client;
+use std::collections::HashMap;
+use reqwest::Client;
 use crate::botmods::errors;
 use serenity::{
     model::channel::Message, 
@@ -11,14 +12,14 @@ use serenity::{
 };
 use serde_json::Value;
 
-struct Pod
+struct Pod {
     subpods: Vec<Pod>,
     vals: Vec<Value>,
-};
+}
 
 struct WolframResult {
     r_client: Client,
-    queries: HashMap,
+    queries: HashMap<String, String>,
     recd_json: String,
     pods: Vec<Pod>,
-};
+}
