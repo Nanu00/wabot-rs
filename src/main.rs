@@ -56,7 +56,7 @@ async fn main() {
         }
     });
 
-    if let Err(e) = bot.start_shard(0, 1).await {
+    if let Err(e) = bot.start_autosharded().await {
         eprintln!("Client error: {}", e);
     }
 }
