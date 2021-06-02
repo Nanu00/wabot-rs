@@ -187,7 +187,7 @@ impl Latex {
 
         let dvitex_cli = Command::new("sh")
             .arg("-c")
-            .arg(format!("latex -interaction=nonstopmode -jobname=texput -output-directory={} '\\documentclass[preview,margin=1pt]{{standalone}} \\usepackage[utf8]{{inputenc}} \\usepackage{{mathtools}} \\usepackage{{siunitx}} \\usepackage[version=4]{{mhchem}} \\usepackage{{amsmath}} \\usepackage{{xcolor}} \\begin{{document}} \\color{{white}} {} \\end{{document}}'", &tex_dir.path().to_str().unwrap(), &tex))
+            .arg(format!("latex -interaction=nonstopmode -jobname=texput -output-directory={} '\\documentclass[preview,margin=1pt]{{standalone}} \\usepackage[utf8]{{inputenc}} \\usepackage{{mathtools}} \\usepackage{{siunitx}} \\usepackage[version=4]{{mhchem}} \\usepackage{{amsmath}} \\usepackage{{physics}} \\usepackage{{tikz-cd}} \\usepackage{{microtype}} \\usepackage{{xcolor}} \\begin{{document}} \\color{{white}} {} \\end{{document}}'", &tex_dir.path().to_str().unwrap(), &tex))
             .output();
         
         let dvitex_cli = dvitex_cli.await?;
@@ -256,7 +256,7 @@ pub async fn latex(ctx: &Context, msg: &Message, args: Args) -> CommandResult {
 
 pub async fn inline_latex(ctx: &Context, msg: &Message) {
     let re_tex = Regex::new(r"(\$.*\$)|(\\[.*\\])|(\\(.*\\))").unwrap();
-    let re_cmd = Regex::new(r"(^\^latex.*)").unwrap();
+    let re_cmd = Regex::new(r"(^\^latex.*)|(¯\\\\_(ツ)\\_/¯)").unwrap();
 
     if re_tex.is_match(&msg.content) && !re_cmd.is_match(&msg.content) {
         let lm = loading_msg(ctx, &msg.channel_id).await.unwrap();
