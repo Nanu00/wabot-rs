@@ -2,8 +2,9 @@ use serenity::{
     prelude::*,
     framework::standard::StandardFramework,
 };
-use std::process;
+use std::{process, time::Duration};
 use wabot::*;
+use tokio::time::sleep;
 
 #[tokio::main]
 async fn main() {
@@ -34,8 +35,28 @@ async fn main() {
             process::exit(1);
         }
     };
+    
+    let manager = bot.shard_manager.clone();
 
-    if let Err(e) = bot.start().await {
+    tokio::spawn(async move {
+        loop {
+            sleep(Duration::from_secs(30)).await;
+
+            let lock = manager.lock().await;
+            let shard_runners = lock.runners.lock().await;
+
+            for (id, runner) in shard_runners.iter() {
+                println!(
+                    "Shard ID {} is {} with a latency of {:?}",
+                    id,
+                    runner.stage,
+                    runner.latency,
+                );
+            }
+        }
+    });
+
+    if let Err(e) = bot.start_shard(0, 1).await {
         eprintln!("Client error: {}", e);
     }
 }
