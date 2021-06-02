@@ -255,8 +255,8 @@ pub async fn latex(ctx: &Context, msg: &Message, args: Args) -> CommandResult {
 }
 
 pub async fn inline_latex(ctx: &Context, msg: &Message) {
-    let re_tex = Regex::new(r"(\$.*\$)|(\[.*\])|(\(.*\))").unwrap();
-    let re_cmd = Regex::new(r"^\^latex.*").unwrap();
+    let re_tex = Regex::new(r"(\$.*\$)|(\\[.*\\])|(\\(.*\\))").unwrap();
+    let re_cmd = Regex::new(r"(^\^latex.*)").unwrap();
 
     if re_tex.is_match(&msg.content) && !re_cmd.is_match(&msg.content) {
         let lm = loading_msg(ctx, &msg.channel_id).await.unwrap();
