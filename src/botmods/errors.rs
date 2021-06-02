@@ -7,6 +7,30 @@ use std::{
 };
 use usvg;
 use png;
+use serenity::{
+    model::channel::Message, 
+    prelude::*,
+};
+
+pub async fn err_msg(ctx: &Context, c_id: &serenity::model::id::ChannelId, loading_msg: Option<&Message>, for_user: &serenity::model::user::User, er: &Error) -> Result<Message, SerenityError> {
+    if let Some(l) = loading_msg {
+        l.delete(&ctx.http).await?;
+    }
+    
+    c_id.send_message(&ctx.http, |m|{
+        m.embed(|e| {
+            e.title("Error");
+            e.description(format!("There was an error:\n{}", er));
+            e.footer(|f| {
+                f.icon_url(for_user.avatar_url().unwrap());
+                f.text(format!("Requested by {}#{}", for_user.name, for_user.discriminator));
+                f
+            });
+            e
+        });
+        m
+    }).await
+}
 
 #[derive(Debug)]
 pub enum Error {

@@ -13,6 +13,7 @@ use usvg;
 use tiny_skia::Color;
 use tempfile;
 use crate::botmods::errors;
+use crate::botmods::errors::err_msg;
 use regex::Regex;
 use tokio::process::Command;
 
@@ -71,24 +72,6 @@ async fn math_msg(ctx: &Context, c_id: &serenity::model::id::ChannelId, loading_
                 data: Cow::from(math.get_img_bytes()),
                 filename: String::from("testfile.png")
             });
-        m
-    }).await
-}
-
-pub async fn err_msg(ctx: &Context, c_id: &serenity::model::id::ChannelId, loading_msg: &Message, for_user: &serenity::model::user::User, er: &errors::Error) -> Result<Message, SerenityError> {
-    loading_msg.delete(&ctx.http).await?;
-    
-    c_id.send_message(&ctx.http, |m|{
-        m.embed(|e| {
-            e.title("Error");
-            e.description(format!("There was an error:\n{}", er));
-            e.footer(|f| {
-                f.icon_url(for_user.avatar_url().unwrap());
-                f.text(format!("Requested by {}#{}", for_user.name, for_user.discriminator));
-                f
-            });
-            e
-        });
         m
     }).await
 }
@@ -165,14 +148,14 @@ pub async fn ascii(ctx: &Context, msg: &Message, args: Args) -> CommandResult {
         Some(r) => Ok(r),
         None => {
             let er = errors::Error::ArgError(1, 0);
-            err_msg(ctx, &msg.channel_id, &lm, &msg.author, &er).await?;
+            err_msg(ctx, &msg.channel_id, Some(&lm), &msg.author, &er).await?;
             Err(er)
         },
     }?;
 
     let _asm = match AsciiMath::asmpng(asm_raw).await {
         Ok(a) => math_msg(ctx, &msg.channel_id, &lm, &msg.author, a).await?,
-        Err(e) => err_msg(ctx, &msg.channel_id, &lm, &msg.author, &e).await?,
+        Err(e) => err_msg(ctx, &msg.channel_id, Some(&lm), &msg.author, &e).await?,
     };
 
     Ok(())
@@ -258,14 +241,14 @@ pub async fn latex(ctx: &Context, msg: &Message, args: Args) -> CommandResult {
         Some(r) => Ok(r),
         None => {
             let er = errors::Error::ArgError(1, 0);
-            err_msg(ctx, &msg.channel_id, &lm, &msg.author, &er).await?;
+            err_msg(ctx, &msg.channel_id, Some(&lm), &msg.author, &er).await?;
             Err(er)
         },
     }?;
 
     let _latex = match Latex::texpng(latex_raw).await {
         Ok(l) => math_msg(ctx, &msg.channel_id, &lm, &msg.author, l).await?,
-        Err(e) => err_msg(ctx, &msg.channel_id, &lm, &msg.author, &e).await?,
+        Err(e) => err_msg(ctx, &msg.channel_id, Some(&lm), &msg.author, &e).await?,
     };
 
     Ok(())
@@ -278,7 +261,7 @@ pub async fn inline_latex(ctx: &Context, msg: &Message) {
         let lm = loading_msg(ctx, &msg.channel_id).await.unwrap();
         let _latex = match Latex::texpng(&msg.content).await {
             Ok(l) => math_msg(ctx, &msg.channel_id, &lm, &msg.author, l).await,
-            Err(e) => err_msg(ctx, &msg.channel_id, &lm, &msg.author, &e).await,
+            Err(e) => err_msg(ctx, &msg.channel_id, Some(&lm), &msg.author, &e).await,
         };
     }
 }
