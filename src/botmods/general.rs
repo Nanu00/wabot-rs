@@ -12,7 +12,7 @@ use serenity::{
 
 #[command]
 #[description = "Simple command to check if the bot is online"]
-pub async fn ping(ctx: &Context, msg: &Message) -> CommandResult {
+pub async fn ping(ctx: &Context, msg: &Message, ) -> CommandResult {
     msg.channel_id.say(&ctx.http, "Pong!").await?;
     Ok(())
 }
