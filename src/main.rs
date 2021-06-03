@@ -6,11 +6,13 @@ use std::{process, time::Duration};
 use wabot::*;
 use tokio::time::sleep;
 
+pub static PREFIX: &str = "---";
+
 #[tokio::main]
 async fn main() {
     
     let framework = StandardFramework::new()
-        .configure(|c| c.prefix("^"))
+        .configure(|c| c.prefix(PREFIX))
         .group(&GENERAL_GROUP)
         .group(&MATH_GROUP)
         .help(&HELP)
