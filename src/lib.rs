@@ -17,19 +17,27 @@ use serenity::{
         CommandGroup,
         CommandResult,
         Args,
-    }
+    },
+    client::bridge::gateway::ShardManager,
 };
-
+use tokio::sync::Mutex;
 use std::{
     env, error,
     collections::{
         HashSet,
     },
+    sync::Arc,
 };
 
 mod botmods;
 use botmods::general::*;
 use botmods::math::*;
+
+pub struct ShardManagerContainer;
+
+impl TypeMapKey for ShardManagerContainer {
+    type Value = Arc<Mutex<ShardManager>>;
+}
 
 pub struct Handler;
 

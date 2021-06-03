@@ -7,13 +7,54 @@ use serenity::{
     framework::standard::
     {
         CommandResult, macros::command
-    }
+    },
+    client::bridge::gateway::ShardId,
 };
+use std::time::Instant;
+use crate::ShardManagerContainer;
 
 #[command]
 #[description = "Simple command to check if the bot is online"]
-pub async fn ping(ctx: &Context, msg: &Message, ) -> CommandResult {
-    msg.channel_id.say(&ctx.http, "Pong!").await?;
+pub async fn ping(ctx: &Context, msg: &Message) -> CommandResult {
+    let bef = Instant::now();
+
+    let mut msg = msg.channel_id.say(&ctx.http, "Pong!").await?;
+    
+    let t = bef.elapsed().as_millis();
+    
+    let data = ctx.data.read().await;
+    let shard_manager = match data.get::<ShardManagerContainer>() {
+        Some(v) => v,
+        None => {
+            msg.edit(ctx, |m| m.content("Error: Couldn't get shard manager")).await?;
+            return Ok(());
+        },
+    };
+    let manager = shard_manager.lock().await;
+    let runners = manager.runners.lock().await;
+    let runner = match runners.get(&ShardId(ctx.shard_id)) {
+        Some(runner) => runner,
+        None => {
+            msg.edit(ctx, |m| m.content("Error: No shard found")).await?;
+            return Ok(());
+        },
+    }; 
+
+    match runner.latency {
+        Some(d) => {
+            msg.edit(&ctx, |m| {
+                m.content(format!("Ping:    {} ms\nAPI latency:    {} ms", t, d.as_millis()));
+                m
+            }).await?;
+        }
+        None => {
+            msg.edit(&ctx, |m| {
+                m.content(format!("Ping:    {} ms\nAPI latency:    Not available", t));
+                m
+            }).await?;
+        }
+    };
+    
     Ok(())
 }
 

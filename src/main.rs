@@ -2,11 +2,20 @@ use serenity::{
     prelude::*,
     framework::standard::StandardFramework,
 };
-use std::{process, time::Duration};
-use wabot::*;
-use tokio::time::sleep;
+use std::{
+    process,
+    sync::Arc,
+};
+use wabot::{get_token, unknown_cmd, Handler, GENERAL_GROUP, HELP, MATH_GROUP};
+use wabot::ShardManagerContainer;
 
 pub static PREFIX: &str = "---";
+
+// pub struct ShardManagerContainer;
+
+// impl TypeMapKey for ShardManagerContainer {
+//     type Value = Arc<Mutex<ShardManager>>;
+// }
 
 #[tokio::main]
 async fn main() {
@@ -38,25 +47,10 @@ async fn main() {
         }
     };
     
-    let manager = bot.shard_manager.clone();
-
-    tokio::spawn(async move {
-        loop {
-            sleep(Duration::from_secs(30)).await;
-
-            let lock = manager.lock().await;
-            let shard_runners = lock.runners.lock().await;
-
-            for (id, runner) in shard_runners.iter() {
-                println!(
-                    "Shard ID {} is {} with a latency of {:?}",
-                    id,
-                    runner.stage,
-                    runner.latency,
-                );
-            }
-        }
-    });
+    {
+        let mut data = bot.data.write().await;
+        data.insert::<ShardManagerContainer>(Arc::clone(&bot.shard_manager));
+    }
 
     if let Err(e) = bot.start_autosharded().await {
         eprintln!("Client error: {}", e);
