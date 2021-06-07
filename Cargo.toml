@@ -18,5 +18,6 @@ version = "1.0"
 features = ["full"]
 
 [dependencies.serenity]
-features = ["cache", "framework", "standard_framework", "rustls_backend"]
-git = "https://github.com/serenity-rs/serenity"
+features = ["cache", "framework", "standard_framework", "rustls_backend", "unstable_discord_api", "collector"]
+git = "https://github.com/HarmoGlace/serenity"
+branch = "dropdowns"

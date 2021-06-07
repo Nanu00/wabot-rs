@@ -6,7 +6,7 @@ use std::{
     process,
     sync::Arc,
 };
-use wabot::{get_token, unknown_cmd, Handler, GENERAL_GROUP, HELP, MATH_GROUP};
+use wabot::{get_appid, get_token, unknown_cmd, Handler, GENERAL_GROUP, HELP, MATH_GROUP};
 use wabot::ShardManagerContainer;
 
 pub static PREFIX: &str = "---";
@@ -35,8 +35,17 @@ async fn main() {
         }
     };
 
+    let appid = match get_appid() {
+        Ok(a) => a.parse::<u64>().unwrap(),
+        Err(e) => {
+            eprintln!("Error getting the appid: {}", e);
+            process::exit(1);
+        }
+    };
+    
     let mut bot = match Client::builder(&token)
         .event_handler(Handler)
+        .application_id(appid)
         .framework(framework)
         .await
         {

@@ -47,6 +47,11 @@ pub fn get_token() -> Result<String, Box<dyn error::Error>> {
     Ok(token)
 }
 
+pub fn get_appid() -> Result<String, Box<dyn error::Error>> {
+    let appid = env::var("APPLICATION_ID")?;
+    Ok(appid)
+}
+
 #[async_trait]
 impl EventHandler for Handler {
     async fn ready(&self, _: Context, ready: Ready) {

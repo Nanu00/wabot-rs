@@ -1,11 +1,18 @@
 use serenity::{
-    model::channel::Message, 
+    model::{
+        channel::Message,
+        interactions::InteractionData,
+    }, 
     prelude::*,
     framework::standard::
     {
         CommandResult, macros::command, Args,
     },
+    collector::{
+        ComponentInteractionCollectorBuilder,
+    },
     http,
+    futures::stream::StreamExt,
 };
 use std::borrow::Cow;
 #[allow(unused_imports)] use usvg::SystemFontDB;
@@ -16,6 +23,7 @@ use crate::botmods::errors;
 use crate::botmods::errors::err_msg;
 use regex::Regex;
 use tokio::process::Command;
+use std::time::Duration;
 
 
 trait MathSnip {
@@ -51,11 +59,10 @@ async fn loading_msg(ctx: &Context, c_id: &serenity::model::id::ChannelId) -> Re
     }).await
 }
 
-
 async fn math_msg(ctx: &Context, c_id: &serenity::model::id::ChannelId, loading_msg: &Message, for_user: &serenity::model::user::User, math: impl MathSnip) -> Result<Message, SerenityError> {
     loading_msg.delete(&ctx.http).await?;
 
-    c_id.send_message(&ctx.http, |m|{
+    let msg = c_id.send_message(&ctx.http, |m|{
         m.embed(|e| {
             e.title("Math snippet");
             e.description(format!("Input: {}", &math.get_plaintext()));
@@ -72,8 +79,44 @@ async fn math_msg(ctx: &Context, c_id: &serenity::model::id::ChannelId, loading_
                 data: Cow::from(math.get_img_bytes()),
                 filename: String::from("testfile.png")
             });
+        m.components( |c| {
+            c.create_action_row( |r| {
+                r.create_button( |b| {
+                    b.label("Delete");
+                    b.style(serenity::model::interactions::ButtonStyle::Primary);
+                    b.custom_id("del");
+                    b.disabled(false);
+                    b
+                })
+            })
+        });
         m
-    }).await
+    }).await?;
+    
+    let clctr = ComponentInteractionCollectorBuilder::new(&ctx)
+        .message_id(msg.id)
+        .channel_id(msg.channel_id)
+        .timeout(Duration::from_secs(300))
+        .await;
+    
+    // serenity::collector::CollectComponentInteraction::new(&ctx).filter()
+
+    // clctr.poll_next();
+    
+    let msg_r = &msg;
+
+    let _clcted: Vec<_> = clctr.then( |i| async move {
+        let b = match i.data.as_ref().unwrap() {
+            InteractionData::MessageComponent(m) => &m.custom_id,
+            _ => "wee"
+        };
+        
+        if b == "del" {
+            let _ = msg_r.delete(&ctx).await;
+        };
+    }).collect().await; 
+
+    Ok(msg)
 }
 
 
