@@ -31,7 +31,7 @@ use std::{
 
 mod botmods;
 use botmods::general::*;
-use botmods::math::*;
+use botmods::markup::*;
 
 pub struct ShardManagerContainer;
 
@@ -54,7 +54,7 @@ impl EventHandler for Handler {
     }
     
     async fn message(&self, ctx: Context, msg: Message) {
-        inline_latex(&ctx, &msg).await;
+        inline_latex(&ctx, &msg).await.unwrap(); //TODO: Error handle
     }
 }
 
