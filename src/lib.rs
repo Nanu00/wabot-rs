@@ -1,9 +1,11 @@
+#![feature(vecdeque_binary_search)]
 use serenity::{
     async_trait, client,
     model::{
         gateway::Ready,
         channel::Message,
         id::UserId,
+        event::MessageUpdateEvent,
     },
     prelude::*,
     framework::standard::{
@@ -29,7 +31,7 @@ use std::{
     sync::Arc,
 };
 
-mod botmods;
+pub mod botmods;
 use botmods::general::*;
 use botmods::markup::*;
 
@@ -55,6 +57,12 @@ impl EventHandler for Handler {
     
     async fn message(&self, ctx: Context, msg: Message) {
         inline_latex(&ctx, &msg).await.unwrap(); //TODO: Error handle
+    }
+    
+    async fn message_update(&self, ctx: Context, old_msg: Option<Message>, new_msg: Option<Message>, upd_event: MessageUpdateEvent) {
+        if upd_event.content.is_some() {
+            edit_handler(&ctx, &upd_event).await;
+        }
     }
 }
 

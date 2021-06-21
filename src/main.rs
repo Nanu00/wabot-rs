@@ -1,13 +1,17 @@
 use serenity::{
     prelude::*,
     framework::standard::StandardFramework,
+    client::bridge::gateway::GatewayIntents,
 };
 use std::{
     process,
     sync::Arc,
+    collections::VecDeque,
 };
 use wabot::{get_token, unknown_cmd, Handler, GENERAL_GROUP, HELP, MATH_GROUP};
 use wabot::ShardManagerContainer;
+use wabot::botmods::markup::MathMessages;
+use tokio::sync::RwLock;
 
 pub static PREFIX: &str = "---";
 
@@ -38,6 +42,7 @@ async fn main() {
     let mut bot = match Client::builder(&token)
         .event_handler(Handler)
         .framework(framework)
+        .intents(GatewayIntents::GUILD_MESSAGES | GatewayIntents::DIRECT_MESSAGES)
         .await
         {
         Ok(c) => c,
@@ -50,6 +55,7 @@ async fn main() {
     {
         let mut data = bot.data.write().await;
         data.insert::<ShardManagerContainer>(Arc::clone(&bot.shard_manager));
+        data.insert::<MathMessages>(Arc::new(RwLock::new(VecDeque::with_capacity(10))))
     }
 
     if let Err(e) = bot.start_autosharded().await {

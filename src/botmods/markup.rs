@@ -1,8 +1,7 @@
 use serenity::{
     model::{
         channel::Message,
-        id::MessageId,
-        id::ChannelId
+        event::MessageUpdateEvent,
     },
     prelude::*,
     framework::standard::
@@ -11,7 +10,11 @@ use serenity::{
     },
     http,
 };
-use std::borrow::Cow;
+use std::{
+    borrow::Cow,
+    collections::VecDeque,
+    sync::Arc,
+};
 #[allow(unused_imports)] use usvg::SystemFontDB;
 use usvg;
 use tiny_skia::Color;
@@ -19,12 +22,107 @@ use tempfile;
 use crate::botmods::errors;
 use crate::botmods::errors::err_msg;
 use regex::Regex;
-use tokio::process::Command;
+use tokio::{
+    process::Command,
+    sync::RwLock,
+};
 
 
 const SCALE: u32 = 8;
+const EDIT_BUFFER_SIZE: usize = 10;
 
-enum MathText {
+pub struct MathMessages;
+
+impl TypeMapKey for MathMessages {
+    type Value = Arc<RwLock<VecDeque<MathSnip>>>;
+}
+
+async fn math_messages_pusher(ctx: &Context, math_snip: MathSnip) {
+    let math_messages_lock = {
+        let data_read = ctx.data.read().await;
+        data_read.get::<MathMessages>().expect("Oops!").clone() //TODO: Error handling
+    };
+    
+    {
+        let mut math_messages = math_messages_lock.write().await;
+        math_messages.push_front(math_snip.clone());
+        
+        if math_messages.len() > EDIT_BUFFER_SIZE {
+            math_messages.truncate(EDIT_BUFFER_SIZE);
+        }
+    }
+}
+
+pub async fn edit_handler(ctx: &Context, msg_upd_event: &MessageUpdateEvent) {
+    let lcmd_re = Regex::new(r"^---latex (?P<i>.*)$").unwrap();
+    let acmd_re = Regex::new(r"^---ascii (?P<i>.*)$").unwrap();
+    let inl_re = Regex::new(r"(\$.*\$)|(\\[.*\\])|(\\(.*\\))").unwrap();
+    
+    let inp_message = msg_upd_event.channel_id.message(&ctx, msg_upd_event.id).await.unwrap();
+
+    let new_content = match &msg_upd_event.content {
+        Some(c) => String::from(c),
+        None => {return}
+    };
+    
+    let mut new_text: Option<MathText> = None;
+    
+    if let Some(m) = lcmd_re.captures(&new_content) {
+        if let Some(n) = m.name("i") {
+            new_text = Some(MathText::Latex(String::from(n.as_str())));
+        }
+    } else if let Some(m) = acmd_re.captures(&new_content) {
+        if let Some(n) = m.name("i") {
+            new_text = Some(MathText::AsciiMath(String::from(n.as_str())));
+        }
+    } else if inl_re.find(&new_content).is_some() {
+        new_text = Some(MathText::Latex(new_content));
+    } else {
+        return
+    };
+    
+    let mut new_snip = MathSnip::new(new_text.unwrap(), &inp_message).await;
+    new_snip.cmpl().await;
+
+    let math_messages_lock = {
+        let data_read = ctx.data.read().await;
+        data_read.get::<MathMessages>().expect("Oops!").clone() //TODO: Error handling
+    };
+    
+    {
+        let mut math_messages = math_messages_lock.write().await;
+        math_messages.make_contiguous();
+        
+        let mut msg_index: Option<usize> = None;
+        
+        for (i, j) in math_messages.iter().enumerate() {
+            if j.inp_message.id == inp_message.id {
+                msg_index = Some(i);
+            };
+        }
+        
+        let msg_index = match msg_index {
+            Some(i) => i,
+            None => {return}
+        };
+        
+        let old_snip = math_messages.get(msg_index).unwrap();
+        let old_msg = old_snip.message.clone().unwrap();
+        
+        old_msg.delete(&ctx).await;
+        // let new_msg = math_msg(&ctx, &inp_message.channel_id, None, &inp_message.author, &new_snip).await.unwrap();
+        new_snip.message = match new_snip.image {
+            Some(_) => Some(math_msg(&ctx, &inp_message.channel_id, None, &inp_message.author, &new_snip).await.unwrap()),
+            None => Some(err_msg(&ctx, &inp_message.channel_id, None, &inp_message.author, &errors::Error::AsciiMError(String::from(new_snip.error.as_ref().unwrap()))).await.unwrap()),
+        };
+        
+        math_messages.insert(msg_index, new_snip.clone());
+        math_messages.remove(msg_index+1);
+    }; //TODO: Error handling
+}
+
+#[derive(Clone, Debug)]
+pub enum MathText {
     Latex(String),
     AsciiMath(String)
 }
@@ -38,12 +136,12 @@ impl MathText {
     }
 }
 
-struct MathSnip {
+#[derive(Clone, Debug)]
+pub struct MathSnip {
     text: MathText,
     image: Option<Vec<u8>>,
-    inp_message: MessageId,
-    message: Option<MessageId>,
-    channel: ChannelId,
+    inp_message: Message,
+    message: Option<Message>,
     error:  Option<String>
 }
 
@@ -52,9 +150,8 @@ impl MathSnip {
         MathSnip {
             text: m_txt,
             image: None,
-            inp_message: i_msg.id,
+            inp_message: i_msg.clone(),
             message: None,
-            channel: i_msg.channel_id,
             error: None
         }
     }
@@ -140,8 +237,10 @@ async fn loading_msg(ctx: &Context, c_id: &serenity::model::id::ChannelId) -> Re
     }).await
 }
 
-async fn math_msg(ctx: &Context, c_id: &serenity::model::id::ChannelId, loading_msg: &Message, for_user: &serenity::model::user::User, math: &MathSnip) -> Result<Message, SerenityError> {
-    loading_msg.delete(&ctx.http).await?;
+async fn math_msg(ctx: &Context, c_id: &serenity::model::id::ChannelId, loading_msg: Option<&Message>, for_user: &serenity::model::user::User, math: &MathSnip) -> Result<Message, SerenityError> {
+    if let Some(m) = loading_msg {
+        m.delete(&ctx.http).await?;
+    }
 
     c_id.send_message(&ctx.http, |m|{
         m.embed(|e| {
@@ -183,9 +282,11 @@ pub async fn ascii(ctx: &Context, msg: &Message, arg: Args) -> CommandResult {
     asm.cmpl().await?;
     
     asm.message = match asm.image {
-        Some(_) => Some(math_msg(ctx, &msg.channel_id, &lm, &msg.author, &asm).await?.id),
-        None => Some(err_msg(ctx, &msg.channel_id, Some(&lm), &msg.author, &errors::Error::AsciiMError(String::from(&asm.error.unwrap()))).await?.id),
+        Some(_) => Some(math_msg(ctx, &msg.channel_id, Some(&lm), &msg.author, &asm).await?),
+        None => Some(err_msg(ctx, &msg.channel_id, Some(&lm), &msg.author, &errors::Error::AsciiMError(String::from(asm.error.as_ref().unwrap()))).await?),
     };
+    
+    math_messages_pusher(ctx, asm).await;
 
     Ok(())
 }
@@ -208,9 +309,11 @@ pub async fn latex(ctx: &Context, msg: &Message, arg: Args) -> CommandResult {
     latex.cmpl().await?;
     
     latex.message = match latex.image {
-        Some(_) => Some(math_msg(ctx, &msg.channel_id, &lm, &msg.author, &latex).await?.id),
-        None => Some(err_msg(ctx, &msg.channel_id, Some(&lm), &msg.author, &errors::Error::AsciiMError(String::from(&latex.error.unwrap()))).await?.id),
+        Some(_) => Some(math_msg(ctx, &msg.channel_id, Some(&lm), &msg.author, &latex).await?),
+        None => Some(err_msg(ctx, &msg.channel_id, Some(&lm), &msg.author, &errors::Error::AsciiMError(String::from(latex.error.as_ref().unwrap()))).await?),
     };
+
+    math_messages_pusher(ctx, latex).await;
 
     Ok(())
 }
@@ -225,11 +328,12 @@ pub async fn inline_latex(ctx: &Context, msg: &Message) -> CommandResult {
         let mut latex = MathSnip::new(MathText::Latex(String::from(&msg.content)), &msg).await;
         latex.cmpl().await?;
 
-        let latex_msg = match latex.image {
-            Some(_) => math_msg(ctx, &msg.channel_id, &lm, &msg.author, &latex).await?.id,
-            None => err_msg(ctx, &msg.channel_id, Some(&lm), &msg.author, &errors::Error::AsciiMError(String::from(&latex.error.unwrap()))).await?.id,
+        latex.message = match latex.image {
+            Some(_) => Some(math_msg(ctx, &msg.channel_id, Some(&lm), &msg.author, &latex).await?),
+            None => Some(err_msg(ctx, &msg.channel_id, Some(&lm), &msg.author, &errors::Error::AsciiMError(String::from(latex.error.as_ref().unwrap()))).await?),
         };
-        latex.message = Some(latex_msg);
+
+        math_messages_pusher(ctx, latex).await;
     };
     Ok(())
 }
