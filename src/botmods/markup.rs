@@ -113,7 +113,7 @@ pub async fn edit_handler(ctx: &Context, msg_upd_event: &MessageUpdateEvent) {
         // let new_msg = math_msg(&ctx, &inp_message.channel_id, None, &inp_message.author, &new_snip).await.unwrap();
         new_snip.message = match new_snip.image {
             Some(_) => Some(math_msg(&ctx, &inp_message.channel_id, None, &inp_message.author, &new_snip).await.unwrap()),
-            None => Some(err_msg(&ctx, &inp_message.channel_id, None, &inp_message.author, &errors::Error::AsciiMError(String::from(new_snip.error.as_ref().unwrap()))).await.unwrap()),
+            None => Some(err_msg(&ctx, &inp_message.channel_id, None, &inp_message.author, &errors::Error::MathError(String::from(new_snip.error.as_ref().unwrap()))).await.unwrap()),
         };
         
         math_messages.insert(msg_index, new_snip.clone());
@@ -169,11 +169,11 @@ impl MathSnip {
                 
                 if !(dvitex_cli.status.success()) {
                     let err = String::from_utf8(dvitex_cli.stdout).unwrap();
-                    let useless = Regex::new(r"(?m)(^\(.+$\n)|(^This is .*$\n)|(^Document Class.*$\n)|(^No file.*$\n)|(^.* written on .*\.$\n)|(^\[1\].*$\n)|(^For additional .*$\n)|(^LaTeX2e .*$\n)|(^Preview.*$\n)|(^L3.*$\n)|(^ restricted \\write18 enabled\.$\n)|(^entering extended mode$\n)|(^dalone$\n)|(^\.dict\)$\n)").unwrap();
+                    let useless = Regex::new(r"(?m)(^\(.+$\n)|(^This is .*$\n)|(^Document Class.*$\n)|(^No file.*$\n)|(^.* written on .*\.$\n)|(^\[1\].*$\n)|(^For additional .*$\n)|(^LaTeX2e .*$\n)|(^Preview.*$\n)|(^L3.*$\n)|(^ restricted \\write18 enabled\.$\n)|(^entering extended mode$\n)|(^dalone$\n)|(^.*\.dict\).*$\n)|(^*./usr/share.*$\n)|(^.*\.tex.*$\n)|(^[()]+$\n)").unwrap();
                     let err = useless.replace_all(&err, "").to_string();
                     
                     self.error = Some(err.clone());
-                    return Err(errors::Error::LatexError(err));
+                    return Err(errors::Error::MathError(err));
                 }
                 
                 let dvisvg_cli = Command::new("sh")
@@ -185,7 +185,7 @@ impl MathSnip {
                 if dvisvg_cli.status.success() {
                     dvisvg_cli.stdout
                 } else {
-                    return Err(errors::Error::LatexError(String::from_utf8(dvisvg_cli.stderr).unwrap()))
+                    return Err(errors::Error::MathError(String::from_utf8(dvisvg_cli.stderr).unwrap()))
                 }
             },
             MathText::AsciiMath(s) => {
@@ -203,7 +203,7 @@ impl MathSnip {
                 if !(mjax_cli.status.success()) {
                     let err = String::from_utf8(mjax_cli.stderr).unwrap();
                     self.error = Some(err.clone());
-                    return Err(errors::Error::AsciiMError(err));
+                    return Err(errors::Error::MathError(err));
                 }
                 
                 let svg_raw = String::from_utf8(mjax_cli.stdout).unwrap();
@@ -279,11 +279,10 @@ pub async fn ascii(ctx: &Context, msg: &Message, arg: Args) -> CommandResult {
     }?;
     
     let mut asm = MathSnip::new(MathText::AsciiMath(String::from(asm_raw)), &msg).await;
-    asm.cmpl().await?;
     
-    asm.message = match asm.image {
-        Some(_) => Some(math_msg(ctx, &msg.channel_id, Some(&lm), &msg.author, &asm).await?),
-        None => Some(err_msg(ctx, &msg.channel_id, Some(&lm), &msg.author, &errors::Error::AsciiMError(String::from(asm.error.as_ref().unwrap()))).await?),
+    asm.message = match asm.cmpl().await {
+        Ok(_) => Some(math_msg(ctx, &msg.channel_id, Some(&lm), &msg.author, &asm).await?),
+        Err(e) => Some(err_msg(ctx, &msg.channel_id, Some(&lm), &msg.author, &e).await?),
     };
     
     math_messages_pusher(ctx, asm).await;
@@ -306,11 +305,10 @@ pub async fn latex(ctx: &Context, msg: &Message, arg: Args) -> CommandResult {
     }?;
     
     let mut latex = MathSnip::new(MathText::Latex(String::from(latex_raw)), &msg).await;
-    latex.cmpl().await?;
     
-    latex.message = match latex.image {
-        Some(_) => Some(math_msg(ctx, &msg.channel_id, Some(&lm), &msg.author, &latex).await?),
-        None => Some(err_msg(ctx, &msg.channel_id, Some(&lm), &msg.author, &errors::Error::AsciiMError(String::from(latex.error.as_ref().unwrap()))).await?),
+    latex.message = match latex.cmpl().await {
+        Ok(_) => Some(math_msg(ctx, &msg.channel_id, Some(&lm), &msg.author, &latex).await?),
+        Err(e) => Some(err_msg(ctx, &msg.channel_id, Some(&lm), &msg.author, &e).await?),
     };
 
     math_messages_pusher(ctx, latex).await;
@@ -326,12 +324,14 @@ pub async fn inline_latex(ctx: &Context, msg: &Message) -> CommandResult {
         let lm = loading_msg(ctx, &msg.channel_id).await.unwrap();
         
         let mut latex = MathSnip::new(MathText::Latex(String::from(&msg.content)), &msg).await;
-        latex.cmpl().await?;
+        // latex.cmpl().await
 
-        latex.message = match latex.image {
-            Some(_) => Some(math_msg(ctx, &msg.channel_id, Some(&lm), &msg.author, &latex).await?),
-            None => Some(err_msg(ctx, &msg.channel_id, Some(&lm), &msg.author, &errors::Error::AsciiMError(String::from(latex.error.as_ref().unwrap()))).await?),
+        latex.message = match latex.cmpl().await {
+            Ok(_) => Some(math_msg(ctx, &msg.channel_id, Some(&lm), &msg.author, &latex).await?),
+            Err(e) => Some(err_msg(ctx, &msg.channel_id, Some(&lm), &msg.author, &e).await?),
         };
+
+        println!("{:?}", latex.message);
 
         math_messages_pusher(ctx, latex).await;
     };

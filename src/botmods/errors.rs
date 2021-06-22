@@ -12,15 +12,22 @@ use serenity::{
     prelude::*,
 };
 
-pub async fn err_msg(ctx: &Context, c_id: &serenity::model::id::ChannelId, loading_msg: Option<&Message>, for_user: &serenity::model::user::User, er: &Error) -> Result<Message, SerenityError> {
+pub async fn err_msg(ctx: &Context, c_id: &serenity::model::id::ChannelId, loading_msg: Option<&Message>, for_user: &serenity::model::user::User, er: &(impl StdErr + Display)) -> Result<Message, SerenityError> {
     if let Some(l) = loading_msg {
         l.delete(&ctx.http).await?;
     }
-    
+
+    let mut err_str = format!("There was an error:\n{}", er).to_string();
+
+    if err_str.len() > 2000 {
+        err_str.truncate(2000);
+        err_str.push_str("...");
+    };
+
     c_id.send_message(&ctx.http, |m|{
         m.embed(|e| {
             e.title("Error");
-            e.description(format!("There was an error:\n{}", er));
+            e.description(err_str);
             e.footer(|f| {
                 f.icon_url(for_user.avatar_url().unwrap());
                 f.text(format!("Requested by {}#{}", for_user.name, for_user.discriminator));
@@ -38,8 +45,7 @@ pub enum Error {
     PNGError(png::EncodingError),
     IOError(io::Error),
     ArgError(u8, u8),
-    LatexError(String),
-    AsciiMError(String),
+    MathError(String),
 }
 
 impl From<usvg::Error> for Error {
@@ -67,8 +73,7 @@ impl Display for Error {
             Error::PNGError(e) => f.write_str(&format!("Error making the PNG: {}", e)),
             Error::IOError(e) => f.write_str(&format!("I/O error: {}", e)),
             Error::ArgError(rec, need) => f.write_str(&format!("Expected {} argument(s), recieved {}", need, rec)),
-            Error::LatexError(e) => f.write_str(&format!("Latex compilation error:\n```{}```", e)),
-            Error::AsciiMError(e) => f.write_str(&format!("AsciiMath compilation error:\n```{}```", e)),
+            Error::MathError(e) => f.write_str(&format!("Compilation error:\n```{}```", e)),
         }
     }
 }
