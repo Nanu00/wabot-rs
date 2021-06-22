@@ -1,8 +1,10 @@
-#![feature(vecdeque_binary_search)]
 use serenity::{
     async_trait, client,
     model::{
-        gateway::Ready,
+        gateway::{
+            Ready,
+            Activity,
+        },
         channel::Message,
         id::UserId,
         event::MessageUpdateEvent,
@@ -53,8 +55,9 @@ pub fn get_token() -> Result<String, Box<dyn error::Error>> {
 
 #[async_trait]
 impl EventHandler for Handler {
-    async fn ready(&self, _: Context, ready: Ready) {
+    async fn ready(&self, ctx: Context, ready: Ready) {
         println!("Connected as {}", ready.user.name);
+        ctx.set_activity(Activity::listening(format!("{}help", PREFIX))).await;
     }
     
     async fn message(&self, ctx: Context, msg: Message) {
@@ -64,7 +67,7 @@ impl EventHandler for Handler {
         } //TODO: Error handle
     }
     
-    async fn message_update(&self, ctx: Context, old_msg: Option<Message>, new_msg: Option<Message>, upd_event: MessageUpdateEvent) {
+    async fn message_update(&self, ctx: Context, _: Option<Message>, _: Option<Message>, upd_event: MessageUpdateEvent) {
         if upd_event.content.is_some() {
             edit_handler(&ctx, &upd_event).await;
         }

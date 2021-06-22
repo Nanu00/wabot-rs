@@ -59,8 +59,8 @@ async fn math_messages_pusher(ctx: &Context, math_snip: MathSnip) {
 }
 
 pub async fn edit_handler(ctx: &Context, msg_upd_event: &MessageUpdateEvent) {
-    let lcmd_re = Regex::new(format!("{}{}{}", r"^", PREFIX, "latex (?P<i>.*)$")).unwrap();
-    let acmd_re = Regex::new(format!("{}{}{}", r"^", PREFIX, "ascii (?P<i>.*)$")).unwrap();
+    let lcmd_re = Regex::new(format!(r"^{}latex (?P<i>.*)$", PREFIX).as_str()).unwrap();
+    let acmd_re = Regex::new(format!(r"^{}ascii (?P<i>.*)$", PREFIX).as_str()).unwrap();
     let inl_re = Regex::new(r"(\$.*\$)|(\\[.*\\])|(\\(.*\\))").unwrap();
     
     let inp_message = msg_upd_event.channel_id.message(&ctx, msg_upd_event.id).await.unwrap();
@@ -114,7 +114,7 @@ pub async fn edit_handler(ctx: &Context, msg_upd_event: &MessageUpdateEvent) {
         let old_snip = math_messages.get(msg_index).unwrap();
         let old_msg = old_snip.message.clone().unwrap();
         
-        old_msg.delete(&ctx).await;
+        old_msg.delete(&ctx).await.unwrap();
         // let new_msg = math_msg(&ctx, &inp_message.channel_id, None, &inp_message.author, &new_snip).await.unwrap();
         new_snip.message = match cmpl_result {
             Ok(_) => Some(math_msg(&ctx, &inp_message.channel_id, None, &inp_message.author, &new_snip).await.unwrap()),
