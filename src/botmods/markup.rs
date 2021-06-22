@@ -322,10 +322,10 @@ pub async fn latex(ctx: &Context, msg: &Message, arg: Args) -> CommandResult {
 }
 
 pub async fn inline_latex(ctx: &Context, msg: &Message) -> CommandResult {
-    let re_tex = Regex::new(r"(\$.*\$)|(\\[.*\\])|(\\(.*\\))").unwrap();
+    let re_tex = fancy_regex::Regex::new(r"((\${1,2})(?<!\s)[^$]+(?!\s)\2)|(\\[.*\\])|(\\(.*\\))").unwrap();
     let re_cmd = Regex::new(format!("{}{}{}", r"(^", PREFIX, r"latex.*)|(¯\\\\_(ツ)\\_/¯)").as_str()).unwrap();
     
-    if re_tex.is_match(&msg.content) && !re_cmd.is_match(&msg.content) {
+    if re_tex.is_match(&msg.content).unwrap() && !re_cmd.is_match(&msg.content) {
         let lm = loading_msg(ctx, &msg.channel_id).await.unwrap();
         
         let mut latex = MathSnip::new(MathText::Latex(String::from(&msg.content)), &msg).await;
