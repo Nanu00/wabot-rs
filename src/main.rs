@@ -8,18 +8,10 @@ use std::{
     sync::Arc,
     collections::VecDeque,
 };
-use wabot::{get_token, unknown_cmd, Handler, GENERAL_GROUP, HELP, MATH_GROUP};
+use wabot::{get_token, unknown_cmd, Handler, GENERAL_GROUP, HELP, MATH_GROUP, PREFIX};
 use wabot::ShardManagerContainer;
 use wabot::botmods::markup::MathMessages;
 use tokio::sync::RwLock;
-
-pub static PREFIX: &str = "---";
-
-// pub struct ShardManagerContainer;
-
-// impl TypeMapKey for ShardManagerContainer {
-//     type Value = Arc<Mutex<ShardManager>>;
-// }
 
 #[tokio::main]
 async fn main() {

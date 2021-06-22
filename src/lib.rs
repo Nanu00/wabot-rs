@@ -35,6 +35,8 @@ pub mod botmods;
 use botmods::general::*;
 use botmods::markup::*;
 
+pub static PREFIX: &str = "---";
+
 pub struct ShardManagerContainer;
 
 impl TypeMapKey for ShardManagerContainer {

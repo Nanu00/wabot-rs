@@ -19,8 +19,13 @@ use std::{
 use usvg;
 use tiny_skia::Color;
 use tempfile;
-use crate::botmods::errors;
-use crate::botmods::errors::err_msg;
+use crate::{
+    botmods::{
+        errors,
+        errors::err_msg
+    },
+    PREFIX
+};
 use regex::Regex;
 use tokio::{
     process::Command,
@@ -318,7 +323,7 @@ pub async fn latex(ctx: &Context, msg: &Message, arg: Args) -> CommandResult {
 
 pub async fn inline_latex(ctx: &Context, msg: &Message) -> CommandResult {
     let re_tex = Regex::new(r"(\$.*\$)|(\\[.*\\])|(\\(.*\\))").unwrap();
-    let re_cmd = Regex::new(r"(^---latex.*)|(¯\\\\_(ツ)\\_/¯)").unwrap();
+    let re_cmd = Regex::new(format!("{}{}{}", r"(^", PREFIX, r"latex.*)|(¯\\\\_(ツ)\\_/¯)").as_str()).unwrap();
     
     if re_tex.is_match(&msg.content) && !re_cmd.is_match(&msg.content) {
         let lm = loading_msg(ctx, &msg.channel_id).await.unwrap();
@@ -330,8 +335,6 @@ pub async fn inline_latex(ctx: &Context, msg: &Message) -> CommandResult {
             Ok(_) => Some(math_msg(ctx, &msg.channel_id, Some(&lm), &msg.author, &latex).await?),
             Err(e) => Some(err_msg(ctx, &msg.channel_id, Some(&lm), &msg.author, &e).await?),
         };
-
-        println!("{:?}", latex.message);
 
         math_messages_pusher(ctx, latex).await;
     };
