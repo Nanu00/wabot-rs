@@ -32,7 +32,7 @@ cargo run
 ```
 starts the bot.
 
-The bot reads the file `config.toml` for all it's variables.
+The bot reads the file `config.toml` for all its variables.
 Look at [`config-template.toml`](config-template.toml) to look at an example.
 
 ## Goals
