@@ -8,7 +8,7 @@ use std::{
     sync::Arc,
     collections::VecDeque,
 };
-use wabot::{get_token, unknown_cmd, Handler, GENERAL_GROUP, HELP, MATH_GROUP, PREFIX};
+use wabot::{unknown_cmd, Handler, GENERAL_GROUP, HELP, MATH_GROUP, PREFIX, CONFIG};
 use wabot::ShardManagerContainer;
 use wabot::botmods::markup::MathMessages;
 use tokio::sync::RwLock;
@@ -16,20 +16,14 @@ use tokio::sync::RwLock;
 #[tokio::main]
 async fn main() {
     
+    let token = {CONFIG.read().await.get::<String>("discord_token").unwrap()};
+
     let framework = StandardFramework::new()
         .configure(|c| c.prefix(PREFIX))
         .group(&GENERAL_GROUP)
         .group(&MATH_GROUP)
         .help(&HELP)
         .unrecognised_command(unknown_cmd);
-
-    let token = match get_token() {
-        Ok(t) => t,
-        Err(e) => {
-            eprintln!("Error getting the token: {}", e);
-            process::exit(1);
-        }
-    };
 
     let mut bot = match Client::builder(&token)
         .event_handler(Handler)

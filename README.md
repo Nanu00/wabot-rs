@@ -32,10 +32,8 @@ cargo run
 ```
 starts the bot.
 
-The bot reads the Discord token from the environment variable `$DISCORD_TOKEN`, make sure it's set to the proper value before starting, or use
-```sh
-DISCORD_TOKEN=<Token> cargo run
-```
+The bot reads the file `config.toml` for all it's variables.
+Look at [`config-template.toml`](config-template.toml) to look at an example.
 
 ## Goals
 ### Priority

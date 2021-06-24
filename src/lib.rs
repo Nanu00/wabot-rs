@@ -1,5 +1,5 @@
 use serenity::{
-    async_trait, client,
+    async_trait,
     model::{
         gateway::{
             Ready,
@@ -26,12 +26,14 @@ use serenity::{
 };
 use tokio::sync::Mutex;
 use std::{
-    env, error,
     collections::{
         HashSet,
     },
     sync::Arc,
 };
+use config::Config;
+#[macro_use]
+extern crate lazy_static;
 
 pub mod botmods;
 use botmods::general::*;
@@ -45,13 +47,11 @@ impl TypeMapKey for ShardManagerContainer {
     type Value = Arc<Mutex<ShardManager>>;
 }
 
-pub struct Handler;
-
-pub fn get_token() -> Result<String, Box<dyn error::Error>> {
-    let token = env::var("DISCORD_TOKEN")?;
-    client::validate_token(&token)?;
-    Ok(token)
+lazy_static!{
+    pub static ref CONFIG: RwLock<Config> = RwLock::new(Config::default().merge(config::File::with_name("config")).unwrap().clone());
 }
+
+pub struct Handler;
 
 #[async_trait]
 impl EventHandler for Handler {
