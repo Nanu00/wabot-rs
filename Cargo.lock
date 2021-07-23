@@ -1871,6 +1871,7 @@ dependencies = [
  "regex",
  "reqwest",
  "resvg",
+ "serde 1.0.126",
  "serde_json",
  "serenity",
  "tempfile",

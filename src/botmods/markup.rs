@@ -22,7 +22,8 @@ use tempfile;
 use crate::{
     botmods::{
         errors,
-        errors::err_msg
+        errors::err_msg,
+        utils::loading_msg
     },
     PREFIX
 };
@@ -31,7 +32,6 @@ use tokio::{
     process::Command,
     sync::RwLock,
 };
-
 
 const SCALE: u32 = 8;
 const EDIT_BUFFER_SIZE: usize = 10;
@@ -233,13 +233,6 @@ impl MathSnip {
         self.image = Some(pixmap.encode_png()?);
         Ok(())
     }
-}
-
-async fn loading_msg(ctx: &Context, c_id: &serenity::model::id::ChannelId) -> Result<Message, SerenityError> {
-    c_id.send_message(&ctx.http, |m| {
-        m.content("Doing stuff <a:loading:840650882286223371>");
-        m
-    }).await
 }
 
 async fn math_msg(ctx: &Context, c_id: &serenity::model::id::ChannelId, loading_msg: Option<&Message>, for_user: &serenity::model::user::User, math: &MathSnip) -> Result<Message, SerenityError> {

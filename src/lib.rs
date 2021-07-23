@@ -38,6 +38,7 @@ extern crate lazy_static;
 pub mod botmods;
 use botmods::general::*;
 use botmods::markup::*;
+use botmods::wolfram::*;
 
 pub static PREFIX: &str = "---";
 
@@ -83,6 +84,11 @@ struct General;
 #[summary = "Math formatting commands"]
 #[commands(ascii, latex)]
 struct Math;
+
+#[group]
+#[summary = "Wolfram commands"]
+#[commands(wolfram)]
+struct Wolfram;
 
 #[hook]
 pub async fn unknown_cmd(ctx: &Context, msg: &Message, u_cmd: &str) {

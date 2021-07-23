@@ -8,7 +8,7 @@ use std::{
     sync::Arc,
     collections::VecDeque,
 };
-use wabot::{unknown_cmd, Handler, GENERAL_GROUP, HELP, MATH_GROUP, PREFIX, CONFIG};
+use wabot::{unknown_cmd, Handler, GENERAL_GROUP, HELP, MATH_GROUP, PREFIX, CONFIG, WOLFRAM_GROUP};
 use wabot::ShardManagerContainer;
 use wabot::botmods::markup::MathMessages;
 use tokio::sync::RwLock;
@@ -22,6 +22,7 @@ async fn main() {
         .configure(|c| c.prefix(PREFIX))
         .group(&GENERAL_GROUP)
         .group(&MATH_GROUP)
+        .group(&WOLFRAM_GROUP)
         .help(&HELP)
         .unrecognised_command(unknown_cmd);
 

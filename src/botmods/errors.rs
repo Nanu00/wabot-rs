@@ -11,6 +11,7 @@ use serenity::{
     model::channel::Message, 
     prelude::*,
 };
+use reqwest;
 
 pub async fn err_msg(ctx: &Context, c_id: &serenity::model::id::ChannelId, loading_msg: Option<&Message>, for_user: &serenity::model::user::User, er: &(impl StdErr + Display)) -> Result<Message, SerenityError> {
     if let Some(l) = loading_msg {
@@ -46,6 +47,7 @@ pub enum Error {
     IOError(io::Error),
     ArgError(u8, u8),
     MathError(String),
+    RequestError(reqwest::Error),
 }
 
 impl From<usvg::Error> for Error {
@@ -66,6 +68,12 @@ impl From<io::Error> for Error {
     }
 }
 
+impl From<reqwest::Error> for Error {
+    fn from(e: reqwest::Error) -> Error {
+        Error::RequestError(e)
+    }
+}
+
 impl Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
@@ -74,6 +82,7 @@ impl Display for Error {
             Error::IOError(e) => f.write_str(&format!("I/O error: {}", e)),
             Error::ArgError(rec, need) => f.write_str(&format!("Expected {} argument(s), recieved {}", need, rec)),
             Error::MathError(e) => f.write_str(&format!("Compilation error:\n```{}```", e)),
+            Error::RequestError(e) => f.write_str(&format!("Request error:\n{}", e))
         }
     }
 }
