@@ -23,7 +23,7 @@ use serenity::{
     http,
 };
 use serde_json::{
-    Value, Map
+    Value
 };
 
 #[derive(Debug)]
@@ -93,7 +93,6 @@ impl Display for Opt {
             Opt::Podstate(s) => {write!(f, "podstate={}", s)},
             Opt::Output(s) => {write!(f, "output={}", s)},
             Opt::Format(s) => {write!(f, "format={}", s)},
-            _ => {write!(f, "")}
         }
     }
 }
@@ -196,30 +195,26 @@ pub async fn wolfram(ctx: &Context, msg: &Message, arg: Args) -> CommandResult {
 
     lm.delete(&ctx.http).await?;
 
-    if let Some(r) = &w.result {
-        msg.channel_id.send_message(&ctx.http, |m|{
-            m.embed(|e| {
-                e.title("Wolfram query");
-                e.description(format!("Input: {}", &w.input));
-                e.image("attachment://image.png");
-                e.footer(|f| {
-                    f.icon_url(for_user.avatar_url().unwrap());
-                    f.text(format!("Requested by {}#{}", for_user.name, for_user.discriminator));
-                    f
-                });
-                e
+    msg.channel_id.send_message(&ctx.http, |m|{
+        m.embed(|e| {
+            e.title("Wolfram query");
+            e.description(format!("Input: {}", &w.input));
+            e.image("attachment://image.png");
+            e.footer(|f| {
+                f.icon_url(for_user.avatar_url().unwrap());
+                f.text(format!("Requested by {}#{}", for_user.name, for_user.discriminator));
+                f
             });
-            m.add_file(
-                http::AttachmentType::Bytes {
-                    data: Cow::from(w.pods[0].subpods[0].image.img.clone()),
-                    filename: String::from("image.png")
-                }
-            );
-            m
-        }).await?;
-    } else {
-        println!("Oof");
-    }
+            e
+        });
+        m.add_file(
+            http::AttachmentType::Bytes {
+                data: Cow::from(w.pods[0].subpods[0].image.img.clone()),
+                filename: String::from("image.png")
+            }
+        );
+        m
+    }).await?;
 
     Ok(())
 }
