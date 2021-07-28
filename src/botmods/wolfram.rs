@@ -25,6 +25,13 @@ use serenity::{
 use serde_json::{
     Value
 };
+use regex::Regex;
+use tokio::process::Command;
+#[allow(unused_imports)] use usvg::SystemFontDB;
+use usvg;
+use tiny_skia::Color;
+
+const SCALE: u32 = 8;
 
 #[derive(Debug)]
 struct Wolf {
@@ -52,7 +59,8 @@ struct Pod {
 struct Subpod {
     title: String,
     image: Image,
-    mathml: String,
+    mathml: Option<String>,
+    mathml_img: Option<Vec<u8>>,
 }
 
 #[derive(Debug)]
@@ -80,6 +88,30 @@ impl Image {
     }
 }
 
+impl<'a> Pod {
+    fn message_create<'b>(&self, m: &'b mut serenity::builder::CreateMessage<'a>) -> &'b mut serenity::builder::CreateMessage<'a> {
+        // for (i, j) in self.subpods.iter().enumerate() {
+            // m.add_file( http::AttachmentType::Bytes {
+            //         data: Cow::from(j.image.img.clone()),
+            //         filename: format!("{}-{}.gif", j.title, i)
+            //     });
+        // }
+        m.add_file( http::AttachmentType::Bytes {
+                data: Cow::from(self.subpods[0].image.img.clone()),
+                filename: format!("{}-{}.gif", self.subpods[0].title, 1)
+        });
+        m.embed( |e| {
+            e.title(&self.title);
+            // for (i, j) in self.subpods.iter().enumerate() {
+            //     e.image(format!("attachment://{}-{}.gif", j.title, i));
+            // }
+            e.image(format!("attachment://{}-{}.gif", self.subpods[0].title, 1));
+            e
+        });
+        m
+    }
+}
+
 #[derive(Debug, Hash, Eq, PartialEq)]
 enum Opt {
     Podstate(String),
@@ -95,6 +127,47 @@ impl Display for Opt {
             Opt::Format(s) => {write!(f, "format={}", s)},
         }
     }
+}
+
+async fn mml_img(mml: &str) -> Result<Vec<u8>, errors::Error> {
+    let regexes = [
+        (Regex::new("\\\\n").unwrap(), "\n"),
+        (Regex::new("\"").unwrap(), "\\\""),
+        (Regex::new("integral").unwrap(), "&int;"),
+        ];
+    let mut mml = String::from(mml);
+    
+    for (i, j) in regexes.iter() {
+        mml = i.replace_all(&mml, *j).into_owned();
+    }
+    
+    let mj_cli = Command::new("sh")
+        .arg("-c")
+        .arg(format!("~/node_modules/.bin/mml2svg \"{}\"", &mml))
+        .output()
+        .await?;
+    
+    if !(mj_cli.status.success()) {
+        let err = String::from_utf8(mj_cli.stderr).unwrap();
+        return Err(errors::Error::ArgError(0, 0));   //TODO: New error types
+    }
+    
+    let svg_raw = String::from_utf8(mj_cli.stdout).unwrap();
+    let color_replace = Regex::new("currentColor").unwrap();
+    let svg_raw = color_replace.replace_all(&svg_raw, "white");
+    let svg_raw = svg_raw.as_bytes();
+    
+    let mut opt = usvg::Options::default();
+    opt.fontdb.load_system_fonts();
+    opt.fontdb.set_generic_families();
+    let svg_tree = usvg::Tree::from_data(svg_raw, &opt)?;
+    let pixmap_size = svg_tree.svg_node().size.to_screen_size();
+    let mut pixmap = tiny_skia::Pixmap::new(pixmap_size.width()*SCALE, pixmap_size.height()*SCALE).unwrap();
+    pixmap.fill(Color::BLACK);
+    
+    resvg::render(&svg_tree, usvg::FitTo::Zoom(SCALE as f32), pixmap.as_mut()).unwrap();
+
+    Ok(pixmap.encode_png()?)
 }
 
 impl Wolf {
@@ -116,7 +189,6 @@ impl Wolf {
         if let Some(o) = opts {
             for i in o.iter() {
                 url = format!("{}&{}", url, i);
-                println!("{}", url);
             };
         };
         println!("{}", url);
@@ -138,14 +210,32 @@ impl Wolf {
             for p in ps.iter() {
                 let mut spods: Vec<Subpod> = Vec::new();
                 for s in p["subpods"].as_array().unwrap().iter() {
-                    println!("{:?}", s["mathml"]);
-                    spods.push(
-                        Subpod {
-                            title: s["title"].as_str().unwrap().to_string(),
-                            image: Image::new(&s["img"].as_object().unwrap()).await?,
-                            mathml: s["mathml"].to_string(),
-                        }
-                    )
+                    if s["mathml"].is_string() {
+                        let mathml = s["mathml"].to_string();
+                        // let mathml_img = match mml_img(&mathml[1..mathml.len()-1]).await {
+                        //     Ok(i) => Some(i),
+                        //     Err(_) => None,
+                        // };
+
+                        // Disabled this thing ^ cause I'm probably not going to use mathml
+                        // still keeping the code here tho
+                        
+                        let mathml_img = None;
+                        
+                        spods.push( Subpod {
+                                title: s["title"].as_str().unwrap().to_string(),
+                                image: Image::new(&s["img"].as_object().unwrap()).await?,
+                                mathml: Some(mathml),
+                                mathml_img
+                            })
+                    } else {
+                        spods.push( Subpod {
+                                title: s["title"].as_str().unwrap().to_string(),
+                                image: Image::new(&s["img"].as_object().unwrap()).await?,
+                                mathml: None,
+                                mathml_img: None
+                            })
+                    }
                 }
                 ret_pods.push(
                     Pod {
@@ -198,8 +288,7 @@ pub async fn wolfram(ctx: &Context, msg: &Message, arg: Args) -> CommandResult {
     msg.channel_id.send_message(&ctx.http, |m|{
         m.embed(|e| {
             e.title("Wolfram query");
-            e.description(format!("Input: {}", &w.input));
-            e.image("attachment://image.png");
+            e.description("Results provided by [Wolfram|Alpha](https://www.wolframalpha.com/)");
             e.footer(|f| {
                 f.icon_url(for_user.avatar_url().unwrap());
                 f.text(format!("Requested by {}#{}", for_user.name, for_user.discriminator));
@@ -207,14 +296,14 @@ pub async fn wolfram(ctx: &Context, msg: &Message, arg: Args) -> CommandResult {
             });
             e
         });
-        m.add_file(
-            http::AttachmentType::Bytes {
-                data: Cow::from(w.pods[0].subpods[0].image.img.clone()),
-                filename: String::from("image.png")
-            }
-        );
         m
     }).await?;
+    
+    for i in w.pods.iter() {
+        msg.channel_id.send_message(&ctx.http, |m| {
+            i.message_create(m)
+        }).await?;
+    }
 
     Ok(())
 }
