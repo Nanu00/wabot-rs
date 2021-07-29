@@ -1,6 +1,9 @@
+use regex::Regex;
 use std::{
     fmt::Display,
     fmt,
+    sync::Arc,
+    collections::VecDeque,
 };
 use crate::{
     botmods::{
@@ -8,13 +11,19 @@ use crate::{
         utils::loading_msg,
     },
     CONFIG,
+    PREFIX
 };
 use serenity::{
     model::{
         channel::Message,
         id::ChannelId,
+        prelude::MessageUpdateEvent,
     }, 
-    prelude::Context,
+    prelude::{
+        Context,
+        TypeMapKey,
+        RwLock,
+    },
     framework::standard::
     {
         CommandResult, macros::command, Args,
@@ -25,6 +34,89 @@ use serde_json::{
 };
 use urlencoding::encode;
 
+pub const EDIT_BUFFER_SIZE: usize = 10;
+
+#[derive(PartialEq)]
+pub enum CmdType {
+    Wolfram
+}
+
+lazy_static!{
+    pub static ref REGMATCH: Vec<(Regex, CmdType)> = vec![
+        (Regex::new(format!(r"^{}wolfram (?P<i>.*)$", PREFIX).as_str()).unwrap(), CmdType::Wolfram),
+        (Regex::new(format!(r"^{}wolf (?P<i>.*)$", PREFIX).as_str()).unwrap(), CmdType::Wolfram),
+    ];
+}
+
+pub struct WolframMessages;
+
+impl TypeMapKey for WolframMessages {
+    type Value = Arc<RwLock<VecDeque<WolfMessage>>>;
+}
+
+async fn wolf_messages_pusher(ctx: &Context, wm: WolfMessage) {
+    let wms_lock = {
+        let data_read = ctx.data.read().await;
+        data_read.get::<WolframMessages>().expect("Oops!").clone()  //TODO: Error handling
+    };
+
+    {
+        let mut wms = wms_lock.write().await;
+        wms.push_front(wm);
+
+        if wms.len() > EDIT_BUFFER_SIZE {
+            wms.truncate(EDIT_BUFFER_SIZE);
+        }
+    }
+}
+
+pub async fn edit_handler(ctx: &Context, msg_upd_event: &MessageUpdateEvent, arg: &str, _: &CmdType) {
+    let lm = loading_msg(&ctx, &msg_upd_event.channel_id).await.unwrap();
+    let inp_message = msg_upd_event.channel_id.message(&ctx, msg_upd_event.id).await.unwrap();
+    
+    let opts = vec![
+        Opt::Format("image".to_string()),
+        Opt::Output("json".to_string()),
+        ];
+
+    let new_w = QueryResult::new(Opt::Input(arg.to_string()), opts).await.unwrap();
+    let mut new_wm = WolfMessage::new(new_w.clone(), inp_message.clone(), new_w.pods).await;
+    
+    let wms_lock = {
+        let data_read = ctx.data.read().await;
+        data_read.get::<WolframMessages>().expect("Oops!").clone()  //TODO: Error handling
+    };
+    
+    {
+        let mut wms = wms_lock.write().await;
+        wms.make_contiguous();
+        
+        let mut msg_index: Option<usize> = None;
+
+        for (i, j) in wms.iter().enumerate() {
+            if j.inp_message.id == inp_message.id {
+                msg_index = Some(i);
+            }
+        }
+        
+        let msg_index = match msg_index {
+            Some(i) => i,
+            None => {return}
+        };
+        
+        let old_wm = wms.get_mut(msg_index).unwrap();
+        old_wm.delete(ctx).await;
+        
+        lm.delete(ctx).await.unwrap();
+        new_wm.send_messages(ctx).await;
+        
+        wms.insert(msg_index, new_wm);
+        wms.remove(msg_index+1);
+    }
+    
+}
+
+#[derive(Clone)]
 enum Opt {
     Podstate(String),
     Output(String),
@@ -43,7 +135,8 @@ impl Display for Opt {
     }
 }
 
-struct QueryResult {
+#[derive(Clone)]
+pub struct QueryResult {
     input: Opt,
     pods: Vec<Pod>,
     error: bool,
@@ -59,7 +152,6 @@ impl QueryResult {
         for i in options.iter() {
             url = format!("{}&{}", url, i);
         }
-        println!("{}", url);
 
         let result = reqwest::get(url).await?
             .json::<serde_json::Value>().await?;
@@ -85,7 +177,7 @@ impl QueryResult {
 }
 
 #[derive(Clone)]
-struct Pod {
+pub struct Pod {
     title: String,
     subpods: Vec<Subpod>,
     json: Value
@@ -110,7 +202,7 @@ impl Pod {
 }
 
 #[derive(Clone)]
-struct Subpod {
+pub struct Subpod {
     title: String,
     image: Image,
     json: Value
@@ -127,7 +219,7 @@ impl Subpod {
 }
 
 #[derive(Clone)]
-struct Image {
+pub struct Image {
     src: String,
     title: String,
     alt: String,
@@ -151,7 +243,7 @@ impl Image {
     }
 }
 
-struct WolfMessage {
+pub struct WolfMessage {
     result: QueryResult,
     inp_message: Message,
     header_message: Option<Message>,
@@ -159,23 +251,62 @@ struct WolfMessage {
 }
 
 impl WolfMessage {
-    async fn new(r: QueryResult, inp: Message) -> WolfMessage {
+    async fn new(r: QueryResult, inp: Message, pods: Vec<Pod>) -> WolfMessage {
+        let mut pod_messages = vec![];
+
+        for i in pods.iter() {
+            pod_messages.push(
+                PodMessage::new(i).await
+            );
+        }
+        
         WolfMessage{
             result: r,
             inp_message: inp,
             header_message: None,
-            pod_messages: vec![]
+            pod_messages
         }
     }
+    
+    async fn send_messages(&mut self, ctx: &Context) {
+        self.header_message = Some(self.inp_message.channel_id.send_message(&ctx.http, |m|{
+            m.embed(|e| {
+                e.title("Wolfram query");
+                e.description("Results provided by [Wolfram|Alpha](https://www.wolframalpha.com/)");
+                if let Opt::Input(s) = &self.result.input {
+                    e.field("Input", s, false);
+                }
+                e.footer(|f| {
+                    f.icon_url(self.inp_message.author.avatar_url().unwrap());
+                    f.text(format!("Requested by {}#{}", self.inp_message.author.name, self.inp_message.author.discriminator));
+                    f
+                });
+                e
+            });
+            m
+        }).await.unwrap());
+        
+        for i in self.pod_messages.iter_mut() {
+            i.send_message(ctx, self.inp_message.channel_id).await.unwrap();
+        }
+    } //TODO: Error handling
+    
+    async fn delete(&mut self, ctx: &Context) {
+        self.header_message.as_ref().unwrap().delete(ctx).await.unwrap();
+
+        for i in self.pod_messages.iter_mut() {
+            i.message.as_ref().unwrap().delete(ctx).await.unwrap();
+        }
+    } //TODO: Error handling
 }
 
-struct PodMessage {
+pub struct PodMessage {
     pod: Pod,
     curr_spod: usize,
     message: Option<Message>
 }
 
-impl<'a> PodMessage {
+impl PodMessage {
     async fn new(pod: &Pod) -> PodMessage {
         PodMessage {
             pod: pod.clone(),
@@ -232,34 +363,13 @@ pub async fn wolfram(ctx: &Context, msg: &Message, arg: Args) -> CommandResult {
     
     let w = QueryResult::new(Opt::Input(query.to_string()), opts).await.unwrap();
     
-    let mut wm = WolfMessage::new(w, msg.clone()).await;
-
-    for i in wm.result.pods.iter() {
-        wm.pod_messages.push(
-            PodMessage::new(i).await
-        );
-    }
+    let mut wm = WolfMessage::new(w.clone(), msg.clone(), w.pods).await;
 
     lm.delete(&ctx.http).await?;
     
-    wm.header_message = Some(msg.channel_id.send_message(&ctx.http, |m|{
-        m.embed(|e| {
-            e.title("Wolfram query");
-            e.description("Results provided by [Wolfram|Alpha](https://www.wolframalpha.com/)");
-            e.field("Input", &wm.result.input, false);
-            e.footer(|f| {
-                f.icon_url(msg.author.avatar_url().unwrap());
-                f.text(format!("Requested by {}#{}", msg.author.name, msg.author.discriminator));
-                f
-            });
-            e
-        });
-        m
-    }).await?);
-    
-    for i in wm.pod_messages.iter_mut() {
-        i.send_message(ctx, msg.channel_id).await?;
-    }
+    wm.send_messages(ctx).await;
+
+    wolf_messages_pusher(ctx, wm).await;
     
     Ok(())
 }

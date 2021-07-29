@@ -5,13 +5,8 @@ use serenity::{
 };
 use std::{
     process,
-    sync::Arc,
-    collections::VecDeque,
 };
-use wabot::{unknown_cmd, Handler, GENERAL_GROUP, HELP, MATH_GROUP, PREFIX, CONFIG, WOLFRAM_GROUP};
-use wabot::ShardManagerContainer;
-use wabot::botmods::markup::MathMessages;
-use tokio::sync::RwLock;
+use wabot::{unknown_cmd, Handler, GENERAL_GROUP, HELP, MATH_GROUP, PREFIX, CONFIG, WOLFRAM_GROUP, load_queues};
 
 #[tokio::main]
 async fn main() {
@@ -39,11 +34,7 @@ async fn main() {
         }
     };
     
-    {
-        let mut data = bot.data.write().await;
-        data.insert::<ShardManagerContainer>(Arc::clone(&bot.shard_manager));
-        data.insert::<MathMessages>(Arc::new(RwLock::new(VecDeque::with_capacity(10))))
-    }
+    load_queues(&bot).await;
 
     if let Err(e) = bot.start_autosharded().await {
         eprintln!("Client error: {}", e);

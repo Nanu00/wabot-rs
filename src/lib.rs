@@ -9,7 +9,7 @@ use serenity::{
         id::UserId,
         event::MessageUpdateEvent,
     },
-    prelude::*,
+    prelude::{Client, Context, EventHandler, RwLock, TypeMapKey},
     framework::standard::{
         macros::{
             group,
@@ -28,6 +28,7 @@ use tokio::sync::Mutex;
 use std::{
     collections::{
         HashSet,
+        VecDeque,
     },
     sync::Arc,
 };
@@ -70,7 +71,7 @@ impl EventHandler for Handler {
     
     async fn message_update(&self, ctx: Context, _: Option<Message>, _: Option<Message>, upd_event: MessageUpdateEvent) {
         if upd_event.content.is_some() {
-            edit_handler(&ctx, &upd_event).await;
+            botmods::utils::edit_handler(&ctx, &upd_event).await;
         }
     }
 }
@@ -113,4 +114,11 @@ async fn help(
 ) -> CommandResult {
     let _ = help_commands::with_embeds(context, msg, args, help_options, groups, owners).await;
     Ok(())
+}
+
+pub async fn load_queues(c: &Client) {
+    let mut data = c.data.write().await;
+    data.insert::<ShardManagerContainer>(Arc::clone(&c.shard_manager));
+    data.insert::<MathMessages>(Arc::new(RwLock::new(VecDeque::with_capacity(botmods::markup::EDIT_BUFFER_SIZE))));
+    data.insert::<WolframMessages>(Arc::new(RwLock::new(VecDeque::with_capacity(botmods::wolfram::EDIT_BUFFER_SIZE))));
 }

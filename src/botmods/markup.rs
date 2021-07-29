@@ -30,11 +30,25 @@ use crate::{
 use regex::Regex;
 use tokio::{
     process::Command,
-    sync::RwLock,
 };
 
 const SCALE: u32 = 8;
-const EDIT_BUFFER_SIZE: usize = 10;
+pub const EDIT_BUFFER_SIZE: usize = 10;
+
+#[derive(PartialEq)]
+pub enum CmdType {
+    Ascii,
+    Latex,
+    Inline
+}
+
+lazy_static!{
+    pub static ref REGMATCH: Vec<(Regex, CmdType)> = vec![
+        (Regex::new(format!(r"^{}latex (?P<i>.*)$", PREFIX).as_str()).unwrap(), CmdType::Latex),
+        (Regex::new(format!(r"^{}ascii (?P<i>.*)$", PREFIX).as_str()).unwrap(), CmdType::Ascii),
+        (Regex::new(r"(\$.*\$)|(\\[.*\\])|(\\(.*\\))").unwrap(), CmdType::Inline),
+    ];
+}
 
 pub struct MathMessages;
 
@@ -58,10 +72,7 @@ async fn math_messages_pusher(ctx: &Context, math_snip: MathSnip) {
     }
 }
 
-pub async fn edit_handler(ctx: &Context, msg_upd_event: &MessageUpdateEvent) {
-    let lcmd_re = Regex::new(format!(r"^{}latex (?P<i>.*)$", PREFIX).as_str()).unwrap();
-    let acmd_re = Regex::new(format!(r"^{}ascii (?P<i>.*)$", PREFIX).as_str()).unwrap();
-    let inl_re = Regex::new(r"(\$.*\$)|(\\[.*\\])|(\\(.*\\))").unwrap();
+pub async fn edit_handler(ctx: &Context, msg_upd_event: &MessageUpdateEvent, arg: &str, ct: &CmdType) {
     
     let inp_message = msg_upd_event.channel_id.message(&ctx, msg_upd_event.id).await.unwrap();
 
@@ -70,17 +81,13 @@ pub async fn edit_handler(ctx: &Context, msg_upd_event: &MessageUpdateEvent) {
         None => {return}
     };
     
-    let mut new_text: Option<MathText> = None;
+    let mut new_text: Option<MathText>;
     
-    if let Some(m) = lcmd_re.captures(&new_content) {
-        if let Some(n) = m.name("i") {
-            new_text = Some(MathText::Latex(String::from(n.as_str())));
-        }
-    } else if let Some(m) = acmd_re.captures(&new_content) {
-        if let Some(n) = m.name("i") {
-            new_text = Some(MathText::AsciiMath(String::from(n.as_str())));
-        }
-    } else if inl_re.find(&new_content).is_some() {
+    if *ct == CmdType::Latex {
+        new_text = Some(MathText::Latex(String::from(arg)));
+    } else if *ct == CmdType::Ascii {
+        new_text = Some(MathText::AsciiMath(String::from(arg)));
+    } else if *ct == CmdType::Inline {
         new_text = Some(MathText::Latex(new_content));
     } else {
         return
@@ -121,7 +128,7 @@ pub async fn edit_handler(ctx: &Context, msg_upd_event: &MessageUpdateEvent) {
             Err(e) => Some(err_msg(&ctx, &inp_message.channel_id, None, &inp_message.author, &e).await.unwrap()),
         };
         
-        math_messages.insert(msg_index, new_snip.clone());
+        math_messages.insert(msg_index, new_snip);
         math_messages.remove(msg_index+1);
     }; //TODO: Error handling
 }
