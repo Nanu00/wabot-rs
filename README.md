@@ -9,6 +9,7 @@ A discord bot in Rust to fetch steps from Wolfram|Alpha, and compile LaTeX snipp
   - [Goals](#goals)
     - [Priority](#priority)
     - [*Might* implement](#might-implement)
+    - [Not implementing](#not-implementing)
   - [Contributing](#contributing)
   - [License](#license)
 
@@ -39,11 +40,15 @@ Look at [`config-template.toml`](config-template.toml) to look at an example.
 ### Priority
 + [x] Latex snippets
 + [x] AsciiMath snippets
-+ [ ] Images from Wolfram|Alpha
-+ [ ] Wolfram|Alpha to AsciiMath/MathML
++ [x] Images from Wolfram|Alpha
 ### *Might* implement
 + [ ] Basic calculator
 + [ ] Graphing
+
+### Not implementing
++ Wolfram|Alpha to AsciiMath/MathML
+  + The ASCIIMath recieved from the API is a pain to parse
+  + Some of the symbols in the MathML recieved from the API are not properly displayed by MathJax
 
 ## Contributing
 Pull requestes are welcome!
