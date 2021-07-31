@@ -8,6 +8,7 @@ use serenity::{
         channel::Message,
         id::UserId,
         event::MessageUpdateEvent,
+        prelude::Interaction
     },
     prelude::{Client, Context, EventHandler, RwLock, TypeMapKey},
     framework::standard::{
@@ -73,6 +74,10 @@ impl EventHandler for Handler {
         if upd_event.content.is_some() {
             botmods::utils::edit_handler(&ctx, &upd_event).await;
         }
+    }
+    
+    async fn interaction_create(&self, ctx: Context, interaction: Interaction) {
+        botmods::utils::component_interaction_handler(&ctx, interaction).await;
     }
 }
 

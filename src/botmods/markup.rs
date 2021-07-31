@@ -2,6 +2,12 @@ use serenity::{
     model::{
         channel::Message,
         event::MessageUpdateEvent,
+        prelude::Interaction,
+        interactions::{
+            InteractionMessage,
+            InteractionData,
+            ComponentType
+        }
     },
     prelude::*,
     framework::standard::
@@ -23,7 +29,11 @@ use crate::{
     botmods::{
         errors,
         errors::err_msg,
-        utils::loading_msg
+        utils::{
+            loading_msg,
+            Buttons,
+            add_components,
+        }
     },
     PREFIX
 };
@@ -43,10 +53,15 @@ pub enum CmdType {
 }
 
 lazy_static!{
-    pub static ref REGMATCH: Vec<(Regex, CmdType)> = vec![
+    pub static ref EDITMATCH: Vec<(Regex, CmdType)> = vec![
         (Regex::new(format!(r"^{}latex (?P<i>.*)$", PREFIX).as_str()).unwrap(), CmdType::Latex),
         (Regex::new(format!(r"^{}ascii (?P<i>.*)$", PREFIX).as_str()).unwrap(), CmdType::Ascii),
         (Regex::new(r"(\$.*\$)|(\\[.*\\])|(\\(.*\\))").unwrap(), CmdType::Inline),
+    ];
+    pub static ref COMPMATCH: Vec<Regex> = vec![
+        Regex::new(format!(r"^{}latex .*$", PREFIX).as_str()).unwrap(),
+        Regex::new(format!(r"^{}ascii .*$", PREFIX).as_str()).unwrap(),
+        Regex::new(r"(\$.*\$)|(\\[.*\\])|(\\(.*\\))").unwrap(),
     ];
 }
 
@@ -133,6 +148,45 @@ pub async fn edit_handler(ctx: &Context, msg_upd_event: &MessageUpdateEvent, arg
     }; //TODO: Error handling
 }
 
+pub async fn component_interaction_handler(ctx: &Context, interaction: Interaction) {
+    let message = match interaction.message.unwrap() {
+        InteractionMessage::Regular(m) => m,
+        _ => {return}
+    };
+    
+    let user = match interaction.member {
+        Some(u) => u.user,
+        None => interaction.user.unwrap(),
+    };
+    
+    let math_messages_lock = {
+        let data_read = ctx.data.read().await;
+        data_read.get::<MathMessages>().expect("Oops!").clone() //TODO: Error handling
+    };
+    
+    if let Some(InteractionData::MessageComponent(c)) = interaction.data {
+        if let ComponentType::Button = c.component_type {
+            {
+                let mut math_messages = math_messages_lock.write().await;
+                math_messages.make_contiguous();
+                
+                for j in math_messages.iter_mut() {
+                    if j.message.is_some() && j.message.as_ref().unwrap().id == message.id && j.inp_message.author == user {
+                        match Buttons::from(c.custom_id.as_str()) {
+                            Buttons::Delete => {
+                                j.message.as_ref().unwrap().delete(ctx).await.unwrap();
+                            },
+                            _ => {}
+                        }
+                    } else {
+                        return
+                    }
+                }
+            }
+        }
+    }
+}
+
 #[derive(Clone, Debug)]
 pub enum MathText {
     Latex(String),
@@ -153,7 +207,7 @@ pub struct MathSnip {
     text: MathText,
     image: Option<Vec<u8>>,
     inp_message: Message,
-    message: Option<Message>,
+    pub message: Option<Message>,
     error:  Option<String>
 }
 
@@ -246,6 +300,10 @@ async fn math_msg(ctx: &Context, c_id: &serenity::model::id::ChannelId, loading_
     if let Some(m) = loading_msg {
         m.delete(&ctx.http).await?;
     }
+    
+    let buttons = vec![
+        Buttons::Delete,
+    ];
 
     c_id.send_message(&ctx.http, |m|{
         m.embed(|e| {
@@ -265,6 +323,7 @@ async fn math_msg(ctx: &Context, c_id: &serenity::model::id::ChannelId, loading_
                 filename: String::from("image.png")
             }
         );
+        add_components(m, buttons);
         m
     }).await
 }

@@ -12,6 +12,7 @@ use wabot::{unknown_cmd, Handler, GENERAL_GROUP, HELP, MATH_GROUP, PREFIX, CONFI
 async fn main() {
     
     let token = {CONFIG.read().await.get::<String>("discord_token").unwrap()};
+    let application_id = {CONFIG.read().await.get::<u64>("discord_appid").unwrap()};
 
     let framework = StandardFramework::new()
         .configure(|c| c.prefix(PREFIX))
@@ -24,6 +25,7 @@ async fn main() {
     let mut bot = match Client::builder(&token)
         .event_handler(Handler)
         .framework(framework)
+        .application_id(application_id)
         .intents(GatewayIntents::GUILD_MESSAGES | GatewayIntents::DIRECT_MESSAGES)
         .await
         {

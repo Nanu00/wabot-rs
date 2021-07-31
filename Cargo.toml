@@ -25,5 +25,5 @@ version = "1.0"
 features = ["full"]
 
 [dependencies.serenity]
-features = ["cache", "framework", "standard_framework", "rustls_backend"]
+features = ["cache", "framework", "standard_framework", "rustls_backend", "unstable_discord_api"]
 git = "https://github.com/serenity-rs/serenity"

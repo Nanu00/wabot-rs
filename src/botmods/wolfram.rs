@@ -8,7 +8,11 @@ use std::{
 use crate::{
     botmods::{
         errors,
-        utils::loading_msg,
+        utils::{
+            loading_msg,
+            add_components,
+            Buttons
+        },
     },
     CONFIG,
     PREFIX
@@ -17,7 +21,15 @@ use serenity::{
     model::{
         channel::Message,
         id::ChannelId,
-        prelude::MessageUpdateEvent,
+        prelude::{
+            MessageUpdateEvent,
+            Interaction,
+        },
+        interactions::{
+            InteractionMessage,
+            InteractionData,
+            ComponentType,
+        },
     }, 
     prelude::{
         Context,
@@ -42,12 +54,13 @@ pub enum CmdType {
 }
 
 lazy_static!{
-    pub static ref REGMATCH: Vec<(Regex, CmdType)> = vec![
+    pub static ref EDITMATCH: Vec<(Regex, CmdType)> = vec![
         (Regex::new(format!(r"^{}wolfram (?P<i>.*)$", PREFIX).as_str()).unwrap(), CmdType::Wolfram),
         (Regex::new(format!(r"^{}wolf (?P<i>.*)$", PREFIX).as_str()).unwrap(), CmdType::Wolfram),
     ];
 }
 
+#[derive(Debug)]
 pub struct WolframMessages;
 
 impl TypeMapKey for WolframMessages {
@@ -116,9 +129,75 @@ pub async fn edit_handler(ctx: &Context, msg_upd_event: &MessageUpdateEvent, arg
     
 }
 
-#[derive(Clone)]
+pub async fn component_interaction_handler(ctx: &Context, interaction: Interaction) {
+    let message = match interaction.message.unwrap() {
+        InteractionMessage::Regular(m) => m,
+        _ => {return}
+    };
+    
+    let user = match interaction.member {
+        Some(u) => u.user,
+        None => interaction.user.unwrap(),
+    };
+
+    if let Some(InteractionData::MessageComponent(c)) = interaction.data {
+        if let ComponentType::Button = c.component_type {
+            let wms_lock = {
+                let data_read = ctx.data.read().await;
+                data_read.get::<WolframMessages>().expect("Oops!").clone()  //TODO: Error handling
+            };
+
+            {
+                let mut wms = wms_lock.write().await;
+                wms.make_contiguous();
+                
+                for i in wms.iter_mut() {
+                    if i.inp_message.author != user {
+                        continue;
+                    }
+                    if i.header_message.as_ref().unwrap().id == message.id {
+                        match Buttons::from(c.custom_id.as_str()) {
+                            Buttons::Delete => {i.delete(ctx).await;}
+                            Buttons::Pod(_, n) => {i.pod_messages[n].send_message(ctx, message.channel_id).await.unwrap();},
+                            _ => {}
+                        }
+                    } else {
+                        for j in i.pod_messages.iter_mut() {
+                            if j.message.is_some() && j.message.as_ref().unwrap().id == message.id {
+                                match Buttons::from(c.custom_id.as_str()) {
+                                    Buttons::Next => {
+                                        if j.curr_spod == (j.pod.subpods.len()-1) {
+                                            j.change_spod(ctx, 0).await.unwrap();
+                                        } else {
+                                            j.change_spod(ctx, j.curr_spod+1).await.unwrap();
+                                        }
+                                    },
+                                    Buttons::Prev => {
+                                        if j.curr_spod == 0 {
+                                            j.change_spod(ctx, j.pod.subpods.len() -1).await.unwrap();
+                                        } else {
+                                            j.change_spod(ctx, j.curr_spod-1).await.unwrap();
+                                        }
+                                    },
+                                    Buttons::Delete => {
+                                        j.delete_message(ctx).await.unwrap();
+                                    },
+                                    _ => {}
+                                }
+                            }
+                        }
+                    }
+                }
+                
+            }
+        }
+    }
+
+}
+
+#[derive(Clone, Debug)]
 enum Opt {
-    Podstate(String),
+    // Podstate(String),
     Output(String),
     Input(String),
     Format(String),
@@ -127,7 +206,7 @@ enum Opt {
 impl Display for Opt {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            Opt::Podstate(s) => {write!(f, "podstate={}", encode(s))},
+            // Opt::Podstate(s) => {write!(f, "podstate={}", encode(s))},
             Opt::Output(s) => {write!(f, "output={}", encode(s))},
             Opt::Input(s) => {write!(f, "input={}", encode(s))},
             Opt::Format(s) => {write!(f, "format={}", encode(s))},
@@ -135,7 +214,7 @@ impl Display for Opt {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct QueryResult {
     input: Opt,
     pods: Vec<Pod>,
@@ -176,7 +255,7 @@ impl QueryResult {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct Pod {
     title: String,
     subpods: Vec<Subpod>,
@@ -201,7 +280,7 @@ impl Pod {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct Subpod {
     title: String,
     image: Image,
@@ -218,15 +297,13 @@ impl Subpod {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct Image {
     src: String,
     title: String,
     alt: String,
     img_type: String,
-    invertable: bool,
     json: Value,
-    img: Vec<u8>
 }
 
 impl Image {
@@ -236,18 +313,17 @@ impl Image {
             alt: json["alt"].as_str().unwrap().to_string(),
             title: json["title"].as_str().unwrap().to_string(),
             img_type: json["type"].as_str().unwrap().to_string(),
-            invertable: json["colorinvertable"].as_bool().unwrap(),
             json: json.clone(),
-            img: reqwest::get(json["src"].as_str().unwrap().to_string()).await.unwrap().bytes().await.unwrap().to_vec()
         }
     }
 }
 
+#[derive(Debug)]
 pub struct WolfMessage {
     result: QueryResult,
     inp_message: Message,
-    header_message: Option<Message>,
-    pod_messages: Vec<PodMessage>,
+    pub header_message: Option<Message>,
+    pub pod_messages: Vec<PodMessage>,
 }
 
 impl WolfMessage {
@@ -269,6 +345,19 @@ impl WolfMessage {
     }
     
     async fn send_messages(&mut self, ctx: &Context) {
+        
+        let mut buttons = vec![
+            Buttons::Delete,
+        ];
+        
+        for (i, j) in self.pod_messages.iter().enumerate() {
+            buttons.push(
+                Buttons::Pod(j.pod.title.clone(), i)
+            )
+        }
+        
+        // let mut buttons = buttons.into_iter();
+
         self.header_message = Some(self.inp_message.channel_id.send_message(&ctx.http, |m|{
             m.embed(|e| {
                 e.title("Wolfram query");
@@ -283,27 +372,38 @@ impl WolfMessage {
                 });
                 e
             });
-            m
+            // m.components(|c| {
+            //     c.create_action_row(|a| {
+            //         for _ in 0..buttons.len() {
+            //             a.create_button(buttons.next().unwrap().to_button());
+            //         }
+            //         a
+            //     })
+            // });
+            add_components(m, buttons)
         }).await.unwrap());
         
-        for i in self.pod_messages.iter_mut() {
-            i.send_message(ctx, self.inp_message.channel_id).await.unwrap();
-        }
+        // for i in self.pod_messages.iter_mut() {
+        //     i.send_message(ctx, self.inp_message.channel_id).await.unwrap();
+        // }
     } //TODO: Error handling
     
     async fn delete(&mut self, ctx: &Context) {
         self.header_message.as_ref().unwrap().delete(ctx).await.unwrap();
 
         for i in self.pod_messages.iter_mut() {
-            i.message.as_ref().unwrap().delete(ctx).await.unwrap();
+            if i.message.is_some() {
+                i.message.as_ref().unwrap().delete(ctx).await.unwrap();
+            }
         }
     } //TODO: Error handling
 }
 
+#[derive(Debug)]
 pub struct PodMessage {
     pod: Pod,
     curr_spod: usize,
-    message: Option<Message>
+    pub message: Option<Message>,
 }
 
 impl PodMessage {
@@ -316,15 +416,46 @@ impl PodMessage {
     }
 
     async fn send_message(&mut self, ctx: &Context, channel_id: ChannelId) -> Result<(), errors::Error> {
+        if let Some(_) = &self.message {
+            return Ok(())
+        }
+        let mut buttons: Vec<Buttons> = vec![
+            Buttons::Delete,
+        ];
+        if self.pod.subpods.len() > 1 {
+            buttons.extend(vec![
+                Buttons::Prev,
+                Buttons::Next,
+            ]);
+        }
+
+        let mut buttons = buttons.into_iter();
+
         self.message = Some(channel_id.send_message(&ctx.http, |m|{
             m.embed( |e| {
                 e.title(&self.pod.title);
                 e.image(&self.pod.subpods[0].image.src);
                 e
             });
+            m.components(|c| {
+                c.create_action_row(|a| {
+                    for _ in 0..buttons.len() {
+                        a.create_button(buttons.next().unwrap().to_button());
+                    }
+                    a
+                })
+            });
             m
         }).await.unwrap());
 
+        Ok(())
+    }
+    
+    async fn delete_message(&mut self, ctx: &Context) -> Result<(), errors::Error> {
+        if let Some(m) = self.message.as_ref() {
+            m.delete(ctx).await.unwrap();
+            self.message = None;
+        }
         Ok(())
     }
     
@@ -338,6 +469,7 @@ impl PodMessage {
                 });
                 m
             }).await.unwrap();
+            self.curr_spod = spod;
         }
         Ok(())
     }
