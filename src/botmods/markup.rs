@@ -96,7 +96,7 @@ pub async fn edit_handler(ctx: &Context, msg_upd_event: &MessageUpdateEvent, arg
         None => {return}
     };
     
-    let mut new_text: Option<MathText>;
+    let new_text: Option<MathText>;
     
     if *ct == CmdType::Latex {
         new_text = Some(MathText::Latex(String::from(arg)));

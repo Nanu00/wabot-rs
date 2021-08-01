@@ -196,17 +196,16 @@ pub async fn component_interaction_handler(ctx: &Context, interaction: Interacti
     }
     
     if is_wolf {
+        interaction.create_interaction_response(ctx, |r|{
+            r.kind(InteractionResponseType::UpdateMessage);
+            r.interaction_response_data(|d|{
+                d.flags(InteractionApplicationCommandCallbackDataFlags::EPHEMERAL);
+                d
+            });
+            r
+        }).await.unwrap();
         wolfram::component_interaction_handler(ctx, interaction.clone()).await;
-        interaction.create_interaction_response(ctx, |r|{
-            r.kind(InteractionResponseType::UpdateMessage);
-            r.interaction_response_data(|d|{
-                d.flags(InteractionApplicationCommandCallbackDataFlags::EPHEMERAL);
-                d
-            });
-            r
-        }).await.unwrap();
     } else if is_mkup {
-        markup::component_interaction_handler(ctx, interaction.clone()).await;
         interaction.create_interaction_response(ctx, |r|{
             r.kind(InteractionResponseType::UpdateMessage);
             r.interaction_response_data(|d|{
@@ -215,6 +214,7 @@ pub async fn component_interaction_handler(ctx: &Context, interaction: Interacti
             });
             r
         }).await.unwrap();
+        markup::component_interaction_handler(ctx, interaction.clone()).await;
     }
 }
 
