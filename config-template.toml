@@ -1,3 +1,3 @@
 discord_token = "<token here>"
-discord_appid = <u64 discord application id>
+discord_appid = "<u64 discord application id>"
 w_appid = "<wolfram appid>"
