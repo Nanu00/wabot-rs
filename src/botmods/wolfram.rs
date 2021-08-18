@@ -392,6 +392,13 @@ impl WolfMessage {
                 if let Opt::Input(s) = &self.result.input {
                     e.field("Input", s, false);
                 }
+                if m_items.len() == 0 {
+                    if self.result.json["didyoumeans"].is_object() {
+                        e.field("No result found!", format!("Did you mean:\n{}", self.result.json["didyoumeans"]["val"].as_str().unwrap()), false);
+                    } else {
+                        e.field("Uh oh", "No result found!", false);
+                    }
+                }
                 e.footer(|f| {
                     f.icon_url(self.inp_message.author.avatar_url().unwrap());
                     f.text(format!("Requested by {}#{}", self.inp_message.author.name, self.inp_message.author.discriminator));
@@ -400,7 +407,9 @@ impl WolfMessage {
                 e
             });
             m.components(|c| {
-                MenuItem::add_menu(c, m_items, "POD");
+                if m_items.len() > 0 {
+                    MenuItem::add_menu(c, m_items, "POD");
+                }
                 Buttons::add_buttons(c, buttons);
                 c
             });
@@ -520,7 +529,14 @@ pub async fn wolfram(ctx: &Context, msg: &Message, arg: Args) -> CommandResult {
 
     lm.delete(&ctx.http).await?;
     
-    wm.send_messages(ctx).await;
+    if wm.result.json["error"].is_object() {
+        if let Value::Object(a) = &wm.result.json["error"] {
+            errors::err_msg(ctx, &msg.channel_id, Some(&lm), &msg.author, &errors::Error::WolfError(a["msg"].to_string(), a["code"].to_string().parse::<u32>().unwrap())).await.unwrap();
+        } 
+    } else {
+        wm.send_messages(ctx).await;
+    }
+
 
     wolf_messages_pusher(ctx, wm).await;
     

@@ -167,6 +167,7 @@ impl Buttons {
     }
 }
 
+#[derive(Debug)]
 pub struct MenuItem {
     label: String,
     emoji: Option<ReactionType>,

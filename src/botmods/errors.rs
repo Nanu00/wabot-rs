@@ -48,6 +48,7 @@ pub enum Error {
     ArgError(u8, u8),
     MathError(String),
     RequestError(reqwest::Error),
+    WolfError(String, u32)
 }
 
 impl From<usvg::Error> for Error {
@@ -82,7 +83,8 @@ impl Display for Error {
             Error::IOError(e) => f.write_str(&format!("I/O error: {}", e)),
             Error::ArgError(rec, need) => f.write_str(&format!("Expected {} argument(s), recieved {}", need, rec)),
             Error::MathError(e) => f.write_str(&format!("Compilation error:\n```{}```", e)),
-            Error::RequestError(e) => f.write_str(&format!("Request error:\n{}", e))
+            Error::RequestError(e) => f.write_str(&format!("Request error:\n{}", e)),
+            Error::WolfError(e, c) => f.write_str(&format!("Wolfram error {} :\n{}", c, e))
         }
     }
 }
