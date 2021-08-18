@@ -52,7 +52,7 @@ pub enum CmdType {
 lazy_static!{
     pub static ref EDITMATCH: Vec<(Regex, CmdType)> = vec![
         (Regex::new(format!(r"^{}wolfram (?P<i>.*)$", PREFIX).as_str()).unwrap(), CmdType::Wolfram),
-        (Regex::new(format!(r"^{}wolf (?P<i>.*)$", PREFIX).as_str()).unwrap(), CmdType::Wolfram),
+        (Regex::new(format!(r"^{}w (?P<i>.*)$", PREFIX).as_str()).unwrap(), CmdType::Wolfram),
     ];
 }
 
