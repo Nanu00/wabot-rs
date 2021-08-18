@@ -7,20 +7,22 @@ use serenity::{
         },
         channel::Message,
         interactions::{
-            ButtonStyle,
+            message_component::{
+                ButtonStyle,
+                InteractionMessage,
+            },
             InteractionResponseType,
-            InteractionMessage,
             InteractionApplicationCommandCallbackDataFlags,
         },
     },
     builder::{
         CreateButton,
-        CreateMessage,
+        CreateSelectMenuOption,
         CreateActionRow,
+        CreateComponents
     },
     prelude::{Context, SerenityError},
 };
-use std::cmp::PartialEq;
 use regex::Regex;
 use crate::{
     botmods::{
@@ -89,12 +91,6 @@ impl ToString for Buttons {
     }
 }
 
-impl PartialEq<String> for Buttons {
-    fn eq(&self, other: &String) -> bool {
-        &self.to_id_string() == other
-    }
-}
-
 impl From<&str> for Buttons {
     fn from(s: &str) -> Buttons {
         let i = Regex::new(r"^POD([[:digit:]]+)").unwrap();
@@ -148,11 +144,84 @@ impl Buttons {
             b
         }
     }
+
+    pub fn add_buttons<'b>(a: &'b mut CreateComponents, vb: Vec<Buttons>) -> &'b mut CreateComponents {
+        let mut ib = vb.into_iter();
+        
+        let mut rows: Vec<CreateActionRow> = vec![];
+        
+        while ib.len() > 0 {
+            rows.push(CreateActionRow::default());
+            let i = rows.len();
+            for _ in 0..3 {
+                if let Some(b) = ib.next() {
+                    rows[i-1].create_button(b.to_button());
+                } else {
+                    continue;
+                }
+            }
+        }
+
+        a.set_action_rows(rows);
+        a
+    }
+}
+
+pub struct MenuItem {
+    label: String,
+    emoji: Option<ReactionType>,
+    description: String,
+    value: String,
+}
+
+impl MenuItem {
+    pub fn new(label: String, emoji: Option<ReactionType>, value: String, description: String) -> MenuItem {
+        MenuItem {
+            label,
+            emoji,
+            value,
+            description,
+        }
+    }
+    
+    pub fn to_csmop(&self) -> CreateSelectMenuOption {
+        let mut i = CreateSelectMenuOption::default();
+        i.label(self.label.clone());
+        i.value(self.value.clone());
+        if let Some(e) = self.emoji.clone() {
+            i.emoji(e);
+        }
+        i.default_selection(false);
+        i.description(self.description.clone());
+        i
+    }
+
+    pub fn add_menu<'b>(c: &'b mut CreateComponents, vmi: Vec<MenuItem>, custom_id: &str) -> &'b mut CreateComponents {
+        c.create_action_row( |a| {
+            a.create_select_menu( |sm| {
+                sm.options( |smops| {
+                    for i in vmi {
+                        smops.add_option(i.to_csmop());
+                    }
+                    smops
+                });
+                sm.custom_id(custom_id);
+                sm
+            });
+            a
+        });
+        c
+    }
 }
 
 pub async fn component_interaction_handler(ctx: &Context, interaction: Interaction) {
     
-    let message = match interaction.message.as_ref().unwrap() {
+    let component_interaction = match &interaction {
+        Interaction::MessageComponent(mc) => mc,
+        _ => return
+    };
+
+    let message = match &component_interaction.message {
         InteractionMessage::Regular(m) => m,
         _ => {return}
     };
@@ -196,7 +265,7 @@ pub async fn component_interaction_handler(ctx: &Context, interaction: Interacti
     }
     
     if is_wolf {
-        interaction.create_interaction_response(ctx, |r|{
+        component_interaction.create_interaction_response(ctx, |r|{
             r.kind(InteractionResponseType::UpdateMessage);
             r.interaction_response_data(|d|{
                 d.flags(InteractionApplicationCommandCallbackDataFlags::EPHEMERAL);
@@ -204,9 +273,9 @@ pub async fn component_interaction_handler(ctx: &Context, interaction: Interacti
             });
             r
         }).await.unwrap();
-        wolfram::component_interaction_handler(ctx, interaction.clone()).await;
+        wolfram::component_interaction_handler(ctx, component_interaction.clone()).await;
     } else if is_mkup {
-        interaction.create_interaction_response(ctx, |r|{
+        component_interaction.create_interaction_response(ctx, |r|{
             r.kind(InteractionResponseType::UpdateMessage);
             r.interaction_response_data(|d|{
                 d.flags(InteractionApplicationCommandCallbackDataFlags::EPHEMERAL);
@@ -214,30 +283,6 @@ pub async fn component_interaction_handler(ctx: &Context, interaction: Interacti
             });
             r
         }).await.unwrap();
-        markup::component_interaction_handler(ctx, interaction.clone()).await;
+        markup::component_interaction_handler(ctx, component_interaction.clone()).await;
     }
-}
-
-pub fn add_components<'b, 'a>(m: &'b mut CreateMessage<'a>, vb: Vec<Buttons>) -> &'b mut CreateMessage<'a> {
-    let mut ib = vb.into_iter();
-    
-    let mut rows: Vec<CreateActionRow> = vec![];
-    
-    while ib.len() > 0 {
-        rows.push(CreateActionRow::default());
-        let i = rows.len();
-        for _ in 0..3 {
-            if let Some(b) = ib.next() {
-                rows[i-1].create_button(b.to_button());
-            } else {
-                continue;
-            }
-        }
-    }
-
-    m.components( |c| {
-        c.set_action_rows(rows);
-        c
-    });
-    m
 }

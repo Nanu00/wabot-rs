@@ -10,41 +10,37 @@ use crate::{
         errors,
         utils::{
             loading_msg,
-            add_components,
-            Buttons
+            Buttons,
+            MenuItem,
         },
     },
     CONFIG,
     PREFIX
 };
-use serenity::{
+use serenity::{framework::standard::
+    {
+        CommandResult, macros::command, Args,
+    },
     model::{
         channel::Message,
         id::ChannelId,
-        prelude::{
-            MessageUpdateEvent,
-            Interaction,
-        },
-        interactions::{
-            InteractionMessage,
-            InteractionData,
+        interactions::message_component::{
             ComponentType,
+            InteractionMessage,
+            MessageComponentInteraction,
         },
-    }, 
+        prelude::MessageUpdateEvent,
+    },
     prelude::{
         Context,
         TypeMapKey,
         RwLock,
-    },
-    framework::standard::
-    {
-        CommandResult, macros::command, Args,
-    },
+    }
 };
-use serde_json::{
-    Value
-};
+use serde_json::Value;
 use urlencoding::encode;
+
+
 
 pub const EDIT_BUFFER_SIZE: usize = 10;
 
@@ -129,19 +125,21 @@ pub async fn edit_handler(ctx: &Context, msg_upd_event: &MessageUpdateEvent, arg
     
 }
 
-pub async fn component_interaction_handler(ctx: &Context, interaction: Interaction) {
-    let message = match interaction.message.unwrap() {
+pub async fn component_interaction_handler(ctx: &Context, interaction: MessageComponentInteraction) {
+    let message = match interaction.message {
         InteractionMessage::Regular(m) => m,
         _ => {return}
     };
     
     let user = match interaction.member {
         Some(u) => u.user,
-        None => interaction.user.unwrap(),
+        None => interaction.user,
     };
 
-    if let Some(InteractionData::MessageComponent(c)) = interaction.data {
-        if let ComponentType::Button = c.component_type {
+    let c = interaction.data;
+
+    match c.component_type {
+        ComponentType::Button => {
             let wms_lock = {
                 let data_read = ctx.data.read().await;
                 data_read.get::<WolframMessages>().expect("Oops!").clone()  //TODO: Error handling
@@ -158,7 +156,7 @@ pub async fn component_interaction_handler(ctx: &Context, interaction: Interacti
                     if i.header_message.as_ref().unwrap().id == message.id {
                         match Buttons::from(c.custom_id.as_str()) {
                             Buttons::Delete => {i.delete(ctx).await;}
-                            Buttons::Pod(_, n) => {i.pod_messages[n].send_message(ctx, message.channel_id).await.unwrap();},
+                            // Buttons::Pod(_, n) => {i.pod_messages[n].send_message(ctx, message.channel_id).await.unwrap();},
                             _ => {}
                         }
                     } else {
@@ -190,7 +188,36 @@ pub async fn component_interaction_handler(ctx: &Context, interaction: Interacti
                 }
                 
             }
-        }
+        },
+        ComponentType::SelectMenu => {
+            let wms_lock = {
+                let data_read = ctx.data.read().await;
+                data_read.get::<WolframMessages>().expect("Oops!").clone()  //TODO: Error handling
+            };
+
+            {
+                let mut wms = wms_lock.write().await;
+                wms.make_contiguous();
+                
+                for i in wms.iter_mut() {
+                    if i.inp_message.author != user {
+                        continue;
+                    }
+                    if i.header_message.as_ref().unwrap().id == message.id {
+                        for v in c.values.iter() {
+                            let pod_re = Regex::new(r"^POD(?P<n>\d+)").unwrap();
+                            if let Some(cap) = pod_re.captures(v) {
+                                if let Some(n) = cap.name("n") {
+                                    let n = n.as_str().parse::<usize>().unwrap();
+                                    i.pod_messages[n].send_message(ctx, message.channel_id).await.unwrap();
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        _ => {}
     }
 
 }
@@ -346,18 +373,18 @@ impl WolfMessage {
     
     async fn send_messages(&mut self, ctx: &Context) {
         
-        let mut buttons = vec![
+        let buttons = vec![
             Buttons::Delete,
         ];
         
+        let mut m_items: Vec<MenuItem> = vec![];
+
         for (i, j) in self.pod_messages.iter().enumerate() {
-            buttons.push(
-                Buttons::Pod(j.pod.title.clone(), i)
+            m_items.push(
+                MenuItem::new(j.pod.title.clone(), None, format!("POD{}", i), format!("Pod {}", i+1))
             )
         }
         
-        // let mut buttons = buttons.into_iter();
-
         self.header_message = Some(self.inp_message.channel_id.send_message(&ctx.http, |m|{
             m.embed(|e| {
                 e.title("Wolfram query");
@@ -372,20 +399,14 @@ impl WolfMessage {
                 });
                 e
             });
-            // m.components(|c| {
-            //     c.create_action_row(|a| {
-            //         for _ in 0..buttons.len() {
-            //             a.create_button(buttons.next().unwrap().to_button());
-            //         }
-            //         a
-            //     })
-            // });
-            add_components(m, buttons)
+            m.components(|c| {
+                MenuItem::add_menu(c, m_items, "POD");
+                Buttons::add_buttons(c, buttons);
+                c
+            });
+            m
         }).await.unwrap());
         
-        // for i in self.pod_messages.iter_mut() {
-        //     i.send_message(ctx, self.inp_message.channel_id).await.unwrap();
-        // }
     } //TODO: Error handling
     
     async fn delete(&mut self, ctx: &Context) {

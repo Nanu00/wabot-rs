@@ -1,20 +1,18 @@
-use serenity::{
-    model::{
-        channel::Message,
-        event::MessageUpdateEvent,
-        prelude::Interaction,
-        interactions::{
-            InteractionMessage,
-            InteractionData,
-            ComponentType
-        }
-    },
-    prelude::*,
-    framework::standard::
+use serenity::{framework::standard::
     {
         CommandResult, macros::command, Args,
     },
     http,
+    model::{
+        channel::Message,
+        event::MessageUpdateEvent,
+        interactions::message_component::{
+                ComponentType,
+                InteractionMessage,
+                MessageComponentInteraction,
+        },
+    },
+    prelude::*
 };
 use std::{
     borrow::Cow,
@@ -32,15 +30,12 @@ use crate::{
         utils::{
             loading_msg,
             Buttons,
-            add_components,
         }
     },
     PREFIX
 };
 use regex::Regex;
-use tokio::{
-    process::Command,
-};
+use tokio::process::Command;
 
 const SCALE: u32 = 8;
 pub const EDIT_BUFFER_SIZE: usize = 10;
@@ -148,39 +143,39 @@ pub async fn edit_handler(ctx: &Context, msg_upd_event: &MessageUpdateEvent, arg
     }; //TODO: Error handling
 }
 
-pub async fn component_interaction_handler(ctx: &Context, interaction: Interaction) {
-    let message = match interaction.message.unwrap() {
+pub async fn component_interaction_handler(ctx: &Context, interaction: MessageComponentInteraction) {
+    let message = match interaction.message {
         InteractionMessage::Regular(m) => m,
         _ => {return}
     };
     
     let user = match interaction.member {
         Some(u) => u.user,
-        None => interaction.user.unwrap(),
+        None => interaction.user,
     };
     
     let math_messages_lock = {
         let data_read = ctx.data.read().await;
         data_read.get::<MathMessages>().expect("Oops!").clone() //TODO: Error handling
     };
+
+    let c = interaction.data;
     
-    if let Some(InteractionData::MessageComponent(c)) = interaction.data {
-        if let ComponentType::Button = c.component_type {
-            {
-                let mut math_messages = math_messages_lock.write().await;
-                math_messages.make_contiguous();
-                
-                for j in math_messages.iter_mut() {
-                    if j.message.is_some() && j.message.as_ref().unwrap().id == message.id && j.inp_message.author == user {
-                        match Buttons::from(c.custom_id.as_str()) {
-                            Buttons::Delete => {
-                                j.message.as_ref().unwrap().delete(ctx).await.unwrap();
-                            },
-                            _ => {}
-                        }
-                    } else {
-                        return
+    if let ComponentType::Button = c.component_type {
+        {
+            let mut math_messages = math_messages_lock.write().await;
+            math_messages.make_contiguous();
+            
+            for j in math_messages.iter_mut() {
+                if j.message.is_some() && j.message.as_ref().unwrap().id == message.id && j.inp_message.author == user {
+                    match Buttons::from(c.custom_id.as_str()) {
+                        Buttons::Delete => {
+                            j.message.as_ref().unwrap().delete(ctx).await.unwrap();
+                        },
+                        _ => {}
                     }
+                } else {
+                    return
                 }
             }
         }
@@ -323,7 +318,10 @@ async fn math_msg(ctx: &Context, c_id: &serenity::model::id::ChannelId, loading_
                 filename: String::from("image.png")
             }
         );
-        add_components(m, buttons);
+        m.components(|c| {
+            Buttons::add_buttons(c, buttons);
+            c
+        });
         m
     }).await
 }
@@ -397,5 +395,6 @@ pub async fn inline_latex(ctx: &Context, msg: &Message) -> CommandResult {
 
         math_messages_pusher(ctx, latex).await;
     };
+
     Ok(())
 }

@@ -169,7 +169,7 @@ dependencies = [
 [[package]]
 name = "command_attr"
 version = "0.3.7"
-source = "git+https://github.com/serenity-rs/serenity#6a400f96721d44b18828ef56025ae3388874f1d6"
+source = "git+https://github.com/serenity-rs/serenity?branch=current#a576cc0fd158a29e238ec15034d3919c3b26dbab"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -1386,8 +1386,8 @@ dependencies = [
 
 [[package]]
 name = "serenity"
-version = "0.10.8"
-source = "git+https://github.com/serenity-rs/serenity#6a400f96721d44b18828ef56025ae3388874f1d6"
+version = "0.10.9"
+source = "git+https://github.com/serenity-rs/serenity?branch=current#a576cc0fd158a29e238ec15034d3919c3b26dbab"
 dependencies = [
  "async-trait",
  "async-tungstenite",
@@ -1868,7 +1868,7 @@ checksum = "5fecdca9a5291cc2b8dcf7dc02453fee791a280f3743cb0905f8822ae463b3fe"
 
 [[package]]
 name = "wabot"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "config",
  "fancy-regex",
