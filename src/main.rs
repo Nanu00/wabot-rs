@@ -3,9 +3,7 @@ use serenity::{
     framework::standard::StandardFramework,
     client::bridge::gateway::GatewayIntents,
 };
-use std::{
-    process,
-};
+use std::process;
 use wabot::{unknown_cmd, Handler, GENERAL_GROUP, HELP, MATH_GROUP, PREFIX, CONFIG, WOLFRAM_GROUP, load_queues};
 
 #[tokio::main]

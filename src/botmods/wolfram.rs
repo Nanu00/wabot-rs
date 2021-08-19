@@ -13,9 +13,10 @@ use crate::{
             Buttons,
             MenuItem,
         },
+        logging::log_write
     },
     CONFIG,
-    PREFIX
+    PREFIX,
 };
 use serenity::{framework::standard::
     {
@@ -39,7 +40,10 @@ use serenity::{framework::standard::
 };
 use serde_json::Value;
 use urlencoding::encode;
-
+use serde::{
+    Serialize,
+    Deserialize
+};
 
 
 pub const EDIT_BUFFER_SIZE: usize = 10;
@@ -56,7 +60,7 @@ lazy_static!{
     ];
 }
 
-#[derive(Debug)]
+#[cfg_attr(debug_assertions, derive(Debug))]
 pub struct WolframMessages;
 
 impl TypeMapKey for WolframMessages {
@@ -71,12 +75,14 @@ async fn wolf_messages_pusher(ctx: &Context, wm: WolfMessage) {
 
     {
         let mut wms = wms_lock.write().await;
-        wms.push_front(wm);
+        wms.push_front(wm.clone());
 
         if wms.len() > EDIT_BUFFER_SIZE {
             wms.truncate(EDIT_BUFFER_SIZE);
         }
     }
+
+    log_write(wm).await;
 }
 
 pub async fn edit_handler(ctx: &Context, msg_upd_event: &MessageUpdateEvent, arg: &str, _: &CmdType) {
@@ -222,7 +228,8 @@ pub async fn component_interaction_handler(ctx: &Context, interaction: MessageCo
 
 }
 
-#[derive(Clone, Debug)]
+#[cfg_attr(debug_assertions, derive(Debug))]
+#[derive(Serialize, Deserialize, Clone)]
 enum Opt {
     // Podstate(String),
     Output(String),
@@ -241,7 +248,8 @@ impl Display for Opt {
     }
 }
 
-#[derive(Clone, Debug)]
+#[cfg_attr(debug_assertions, derive(Debug))]
+#[derive(Serialize, Deserialize, Clone)]
 pub struct QueryResult {
     input: Opt,
     pods: Vec<Pod>,
@@ -282,7 +290,8 @@ impl QueryResult {
     }
 }
 
-#[derive(Clone, Debug)]
+#[cfg_attr(debug_assertions, derive(Debug))]
+#[derive(Serialize, Deserialize, Clone)]
 pub struct Pod {
     title: String,
     subpods: Vec<Subpod>,
@@ -307,7 +316,8 @@ impl Pod {
     }
 }
 
-#[derive(Clone, Debug)]
+#[cfg_attr(debug_assertions, derive(Debug))]
+#[derive(Serialize, Deserialize, Clone)]
 pub struct Subpod {
     title: String,
     image: Image,
@@ -324,7 +334,8 @@ impl Subpod {
     }
 }
 
-#[derive(Clone, Debug)]
+#[cfg_attr(debug_assertions, derive(Debug))]
+#[derive(Serialize, Deserialize, Clone)]
 pub struct Image {
     src: String,
     title: String,
@@ -345,7 +356,8 @@ impl Image {
     }
 }
 
-#[derive(Debug)]
+#[cfg_attr(debug_assertions, derive(Debug))]
+#[derive(Serialize, Deserialize, Clone)]
 pub struct WolfMessage {
     result: QueryResult,
     inp_message: Message,
@@ -429,7 +441,8 @@ impl WolfMessage {
     } //TODO: Error handling
 }
 
-#[derive(Debug)]
+#[cfg_attr(debug_assertions, derive(Debug))]
+#[derive(Serialize, Deserialize, Clone)]
 pub struct PodMessage {
     pod: Pod,
     curr_spod: usize,
@@ -536,7 +549,6 @@ pub async fn wolfram(ctx: &Context, msg: &Message, arg: Args) -> CommandResult {
     } else {
         wm.send_messages(ctx).await;
     }
-
 
     wolf_messages_pusher(ctx, wm).await;
     

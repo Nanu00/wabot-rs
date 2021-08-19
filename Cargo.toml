@@ -18,6 +18,7 @@ lazy_static = "1.4.0"
 reqwest = "0.11.3"
 serde = "1.0.126"
 serde_json = "1.0"
+ron = "0.6.4"
 urlencoding = "2.1.0"
 
 [dependencies.tokio]
@@ -28,3 +29,7 @@ features = ["full"]
 features = ["cache", "framework", "standard_framework", "rustls_backend", "unstable_discord_api"]
 git = "https://github.com/serenity-rs/serenity"
 branch = "current"
+
+[dependencies.chrono]
+version = "0.4"
+features = ["alloc", "std", "clock", "serde"]

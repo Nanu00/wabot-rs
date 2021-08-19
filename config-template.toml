@@ -1,3 +1,4 @@
 discord_token = "<token here>"
 discord_appid = "<u64 discord application id>"
 w_appid = "<wolfram appid>"
+log_path = "Full absolute path to the file (not folder)"

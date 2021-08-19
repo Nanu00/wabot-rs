@@ -30,12 +30,17 @@ use crate::{
         utils::{
             loading_msg,
             Buttons,
-        }
+        },
+        logging::log_write
     },
     PREFIX
 };
 use regex::Regex;
 use tokio::process::Command;
+use serde::{
+    Serialize,
+    Deserialize
+};
 
 const SCALE: u32 = 8;
 pub const EDIT_BUFFER_SIZE: usize = 10;
@@ -80,6 +85,8 @@ async fn math_messages_pusher(ctx: &Context, math_snip: MathSnip) {
             math_messages.truncate(EDIT_BUFFER_SIZE);
         }
     }
+
+    log_write(math_snip).await;
 }
 
 pub async fn edit_handler(ctx: &Context, msg_upd_event: &MessageUpdateEvent, arg: &str, ct: &CmdType) {
@@ -182,7 +189,8 @@ pub async fn component_interaction_handler(ctx: &Context, interaction: MessageCo
     }
 }
 
-#[derive(Clone, Debug)]
+#[cfg_attr(debug_assertions, derive(Debug))]
+#[derive(Serialize, Deserialize, Clone)]
 pub enum MathText {
     Latex(String),
     AsciiMath(String)
@@ -197,7 +205,8 @@ impl MathText {
     }
 }
 
-#[derive(Clone, Debug)]
+#[cfg_attr(debug_assertions, derive(Debug))]
+#[derive(Serialize, Deserialize, Clone)]
 pub struct MathSnip {
     text: MathText,
     image: Option<Vec<u8>>,

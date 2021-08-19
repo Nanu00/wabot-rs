@@ -1216,6 +1216,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "ron"
+version = "0.6.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "064ea8613fb712a19faf920022ec8ddf134984f100090764a4e1d768f3827f1f"
+dependencies = [
+ "base64 0.13.0",
+ "bitflags",
+ "serde 1.0.126",
+]
+
+[[package]]
 name = "roxmltree"
 version = "0.14.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1870,6 +1881,7 @@ checksum = "5fecdca9a5291cc2b8dcf7dc02453fee791a280f3743cb0905f8822ae463b3fe"
 name = "wabot"
 version = "0.6.1"
 dependencies = [
+ "chrono",
  "config",
  "fancy-regex",
  "lazy_static",
@@ -1877,6 +1889,7 @@ dependencies = [
  "regex",
  "reqwest",
  "resvg",
+ "ron",
  "serde 1.0.126",
  "serde_json",
  "serenity",
