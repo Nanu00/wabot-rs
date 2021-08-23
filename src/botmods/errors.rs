@@ -21,7 +21,7 @@ pub async fn err_msg(ctx: &Context, c_id: &serenity::model::id::ChannelId, loadi
     let mut err_str = format!("There was an error:\n{}", er).to_string();
 
     if err_str.len() > 2000 {
-        err_str.truncate(2000);
+        err_str.truncate(1997);
         err_str.push_str("...");
     };
 

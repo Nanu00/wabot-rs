@@ -1,4 +1,11 @@
 use serenity::{
+    async_trait,
+    builder::{
+        CreateButton,
+        CreateSelectMenuOption,
+        CreateActionRow,
+        CreateComponents
+    },
     model::{
         prelude::{
             MessageUpdateEvent,
@@ -6,59 +13,78 @@ use serenity::{
             ReactionType,
         },
         channel::Message,
-        interactions::{
-            message_component::{
-                ButtonStyle,
-                InteractionMessage,
-            },
-            InteractionResponseType,
-            InteractionApplicationCommandCallbackDataFlags,
-        },
+        interactions::message_component::ButtonStyle,
+        id::MessageId,
     },
-    builder::{
-        CreateButton,
-        CreateSelectMenuOption,
-        CreateActionRow,
-        CreateComponents
+    prelude::{
+        Context,
+        SerenityError
     },
-    prelude::{Context, SerenityError},
+    framework::standard::{
+        CommandGroup,
+        CommandResult,
+    },
 };
+use std::pin::Pin;
+use futures::Future;
 use regex::Regex;
 use crate::{
-    botmods::{
-        markup,
-        wolfram
-    },
-    WolframMessages,
-    MathMessages
+    Interactables,
+    Editables,
+    EDIT_BUFFER_SIZE,
+    INTERACT_BUFFER_SIZE
 };
 
-pub async fn loading_msg(ctx: &Context, c_id: &serenity::model::id::ChannelId) -> Result<Message, SerenityError> {
-    c_id.send_message(&ctx.http, |m| {
-        m.content("Doing stuff <a:loading:840650882286223371>");
-        m
-    }).await
+pub struct BotModule {
+    pub command_group: &'static CommandGroup,
+    pub command_pattern: Vec<Regex>,
+    pub editors: Vec<fn(Context, MessageUpdateEvent) -> Pin<Box<dyn Future<Output = ()> + Send>>>,
+    pub interactors: Vec<fn(Context, Interaction) -> Pin<Box<dyn Future<Output = ()> + Send>>>,
+    pub watchers: Vec<fn(Context, Message) -> Pin<Box<dyn Future<Output = CommandResult> + Send>>>
 }
 
-pub async fn edit_handler(ctx: &Context, msg_upd_event: &MessageUpdateEvent) {
-    let new_content = match &msg_upd_event.content {
-        Some(c) => String::from(c),
-        None => {return}
+#[async_trait]
+pub trait Editable {
+    async fn edit(&mut self, ctx: &Context) -> Result<(), crate::botmods::errors::Error>;
+    fn get_response_message_id(&self) -> Vec<MessageId>;
+    fn get_input_message_id(&self) -> MessageId;
+    fn get_command_pattern(&self) -> Regex;
+}
+
+#[async_trait]
+pub trait Interactable {
+    async fn interaction_respond(&mut self, ctx: &Context, interaction: Interaction) -> Result<(), crate::botmods::errors::Error>;
+    fn get_response_message_id(&self) -> Vec<MessageId>;
+}
+
+pub async fn push_to_interactables(ctx: &Context, i: Box<dyn Interactable + Send + Sync>) {
+    let interactables_lock = {
+        let data_read = ctx.data.read().await;
+        data_read.get::<Interactables>().expect("Oops!").clone() //TODO: Error handling
     };
     
-    for (r, ct) in markup::EDITMATCH.iter() {
-        if let Some(m) = r.captures(&new_content) {
-            if let Some(n) = m.name("i") {
-                markup::edit_handler(ctx, msg_upd_event, n.as_str(), ct).await;
-            }
+    {
+        let mut interactables = interactables_lock.write().await;
+        interactables.push_front(i);
+        
+        if interactables.len() > INTERACT_BUFFER_SIZE {
+            interactables.truncate(INTERACT_BUFFER_SIZE);
         }
     }
+}
 
-    for (r, ct) in wolfram::EDITMATCH.iter() {
-        if let Some(m) = r.captures(&new_content) {
-            if let Some(n) = m.name("i") {
-                wolfram::edit_handler(ctx, msg_upd_event, n.as_str(), ct).await;
-            }
+pub async fn push_to_editables(ctx: &Context, i: Box<dyn Editable + Send + Sync>) {
+    let editables_lock = {
+        let data_read = ctx.data.read().await;
+        data_read.get::<Editables>().expect("Oops!").clone() //TODO: Error handling
+    };
+    
+    {
+        let mut editables = editables_lock.write().await;
+        editables.push_front(i);
+        
+        if editables.len() > EDIT_BUFFER_SIZE {
+            editables.truncate(EDIT_BUFFER_SIZE);
         }
     }
 }
@@ -215,75 +241,9 @@ impl MenuItem {
     }
 }
 
-pub async fn component_interaction_handler(ctx: &Context, interaction: Interaction) {
-    
-    let component_interaction = match &interaction {
-        Interaction::MessageComponent(mc) => mc,
-        _ => return
-    };
-
-    let message = match &component_interaction.message {
-        InteractionMessage::Regular(m) => m,
-        _ => {return}
-    };
-    
-    let mut is_wolf = false;
-    let mut is_mkup = false;
-
-    {
-        let (wms_lock, mms_lock) = {
-            let data_read = ctx.data.read().await;
-            (data_read.get::<WolframMessages>().expect("Oops!").clone(), data_read.get::<MathMessages>().expect("Oops!").clone())  //TODO: Error handling
-        };
-
-        {
-            let mut wms = wms_lock.write().await;
-            wms.make_contiguous();
-            
-            for i in wms.iter() {
-                if i.header_message.is_some() && i.header_message.as_ref().unwrap().id == message.id {
-                    is_wolf = true;
-                } else {
-                    for j in i.pod_messages.iter() {
-                        if j.message.is_some() && j.message.as_ref().unwrap().id == message.id {
-                            is_wolf = true;
-                        }
-                    }
-                }
-            }
-        }
-
-        {
-            let mut mms = mms_lock.write().await;
-            mms.make_contiguous();
-            
-            for i in mms.iter() {
-                if i.message.is_some() && i.message.as_ref().unwrap().id == message.id {
-                    is_mkup = true;
-                }
-            }
-        }
-    }
-    
-    if is_wolf {
-        component_interaction.create_interaction_response(ctx, |r|{
-            r.kind(InteractionResponseType::UpdateMessage);
-            r.interaction_response_data(|d|{
-                d.flags(InteractionApplicationCommandCallbackDataFlags::EPHEMERAL);
-                d
-            });
-            r
-        }).await.unwrap();
-        wolfram::component_interaction_handler(ctx, component_interaction.clone()).await;
-    } else if is_mkup {
-        component_interaction.create_interaction_response(ctx, |r|{
-            r.kind(InteractionResponseType::UpdateMessage);
-            r.interaction_response_data(|d|{
-                d.flags(InteractionApplicationCommandCallbackDataFlags::EPHEMERAL);
-                d
-            });
-            r
-        }).await.unwrap();
-        markup::component_interaction_handler(ctx, component_interaction.clone()).await;
-    }
+pub async fn loading_msg(ctx: &Context, c_id: &serenity::model::id::ChannelId) -> Result<Message, SerenityError> {
+    c_id.send_message(&ctx.http, |m| {
+        m.content("Doing stuff <a:loading:840650882286223371>");
+        m
+    }).await
 }

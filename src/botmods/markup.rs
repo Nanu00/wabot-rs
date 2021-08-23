@@ -1,24 +1,33 @@
-use serenity::{framework::standard::
-    {
-        CommandResult, macros::command, Args,
+use serenity::{
+    async_trait,
+    framework::standard::{
+        CommandResult,
+        macros::{
+            command,
+            group
+        },
+        Args,
     },
     http,
     model::{
         channel::Message,
         event::MessageUpdateEvent,
-        interactions::message_component::{
-                ComponentType,
-                InteractionMessage,
-                MessageComponentInteraction,
+        interactions::{
+            Interaction,
+            InteractionResponseType,
+            InteractionApplicationCommandCallbackDataFlags,
         },
+        id::MessageId,
     },
-    prelude::*
+    prelude::*,
 };
 use std::{
     borrow::Cow,
     collections::VecDeque,
     sync::Arc,
+    pin::Pin,
 };
+use futures::Future;
 #[allow(unused_imports)] use usvg::SystemFontDB;
 use usvg;
 use tiny_skia::Color;
@@ -30,8 +39,12 @@ use crate::{
         utils::{
             loading_msg,
             Buttons,
+            BotModule,
+            Editable,
+            Interactable,
+            push_to_editables,
+            push_to_interactables
         },
-        logging::log_write
     },
     PREFIX
 };
@@ -41,9 +54,34 @@ use serde::{
     Serialize,
     Deserialize
 };
+use lazy_static;
+
+lazy_static!(
+    pub static ref MOD_MARKUP: BotModule = BotModule {
+        command_group: &MARKUP_GROUP,
+        command_pattern: vec![
+            Regex::new(format!(r"^{}latex .*$", PREFIX).as_str()).unwrap(),
+            Regex::new(format!(r"^{}ascii .*$", PREFIX).as_str()).unwrap(),
+            Regex::new(r"(\$.*\$)|(\\[.*\\])|(\\(.*\\))").unwrap()
+        ],
+        editors: vec![
+           edit_handler_wrap,
+        ],
+        interactors: vec![
+            // component_interaction_handler_wrap,
+        ],
+        watchers: vec![
+            inline_latex_wrap,
+        ],
+    };
+);
+
+#[group]
+#[summary = "Math formatting commands"]
+#[commands(ascii, latex)]
+struct Markup;
 
 const SCALE: u32 = 8;
-pub const EDIT_BUFFER_SIZE: usize = 10;
 
 #[derive(PartialEq)]
 pub enum CmdType {
@@ -71,123 +109,95 @@ impl TypeMapKey for MathMessages {
     type Value = Arc<RwLock<VecDeque<MathSnip>>>;
 }
 
-async fn math_messages_pusher(ctx: &Context, math_snip: MathSnip) {
-    let math_messages_lock = {
-        let data_read = ctx.data.read().await;
-        data_read.get::<MathMessages>().expect("Oops!").clone() //TODO: Error handling
-    };
-    
-    {
-        let mut math_messages = math_messages_lock.write().await;
-        math_messages.push_front(math_snip.clone());
-        
-        if math_messages.len() > EDIT_BUFFER_SIZE {
-            math_messages.truncate(EDIT_BUFFER_SIZE);
-        }
-    }
-
-    log_write(math_snip).await;
+fn edit_handler_wrap(ctx: Context, msg_upd_event: MessageUpdateEvent) -> Pin<Box<dyn Future<Output = ()> + Send>> {
+    Box::pin(edit_handler(ctx, msg_upd_event))
 }
 
-pub async fn edit_handler(ctx: &Context, msg_upd_event: &MessageUpdateEvent, arg: &str, ct: &CmdType) {
-    
+async fn edit_handler(ctx: Context, msg_upd_event: MessageUpdateEvent) {
+    lazy_static! {
+        static ref INLINE_RE: fancy_regex::Regex = fancy_regex::Regex::new(r"((\${1,2})(?![\s$]).+(?<![\s$])\2)|(\\[.*\\])|(\\(.*\\))").unwrap();
+        static ref LATEX_RE: Regex = Regex::new(format!(r"^{}latex (?P<args>.*)$", PREFIX).as_str()).unwrap();
+        static ref ASCII_RE: Regex = Regex::new(format!(r"^{}ascii (?P<args>.*)$", PREFIX).as_str()).unwrap();
+    };
+
     let inp_message = msg_upd_event.channel_id.message(&ctx, msg_upd_event.id).await.unwrap();
 
     let new_content = match &msg_upd_event.content {
         Some(c) => String::from(c),
         None => {return}
     };
-    
-    let new_text: Option<MathText>;
-    
-    if *ct == CmdType::Latex {
-        new_text = Some(MathText::Latex(String::from(arg)));
-    } else if *ct == CmdType::Ascii {
-        new_text = Some(MathText::AsciiMath(String::from(arg)));
-    } else if *ct == CmdType::Inline {
-        new_text = Some(MathText::Latex(new_content));
-    } else {
-        return
-    };
-    
-    let mut new_snip = MathSnip::new(new_text.unwrap(), &inp_message).await;
-    let cmpl_result = new_snip.cmpl().await;
 
-    let math_messages_lock = {
-        let data_read = ctx.data.read().await;
-        data_read.get::<MathMessages>().expect("Oops!").clone() //TODO: Error handling
-    };
-    
-    {
-        let mut math_messages = math_messages_lock.write().await;
-        math_messages.make_contiguous();
-        
-        let mut msg_index: Option<usize> = None;
-        
-        for (i, j) in math_messages.iter().enumerate() {
-            if j.inp_message.id == inp_message.id {
-                msg_index = Some(i);
-            };
-        }
-        
-        let msg_index = match msg_index {
-            Some(i) => i,
-            None => {return}
-        };
-        
-        let old_snip = math_messages.get(msg_index).unwrap();
-        let old_msg = old_snip.message.clone().unwrap();
-        
-        old_msg.delete(&ctx).await.unwrap();
-        // let new_msg = math_msg(&ctx, &inp_message.channel_id, None, &inp_message.author, &new_snip).await.unwrap();
-        new_snip.message = match cmpl_result {
-            Ok(_) => Some(math_msg(&ctx, &inp_message.channel_id, None, &inp_message.author, &new_snip).await.unwrap()),
-            Err(e) => Some(err_msg(&ctx, &inp_message.channel_id, None, &inp_message.author, &e).await.unwrap()),
-        };
-        
-        math_messages.insert(msg_index, new_snip);
-        math_messages.remove(msg_index+1);
-    }; //TODO: Error handling
-}
+    let mut ct: Option<CmdType> = None;
+    let mut arg = "";
 
-pub async fn component_interaction_handler(ctx: &Context, interaction: MessageComponentInteraction) {
-    let message = match interaction.message {
-        InteractionMessage::Regular(m) => m,
+    if INLINE_RE.captures(&new_content).unwrap().is_some() && INLINE_RE.captures(&new_content).unwrap().unwrap().name("args").is_some() {
+        arg = INLINE_RE.captures(&new_content).unwrap().unwrap().name("args").unwrap().as_str();
+        ct = Some(CmdType::Inline);
+    } else if LATEX_RE.captures(&new_content).is_some() && LATEX_RE.captures(&new_content).unwrap().name("args").is_some() {
+        arg = LATEX_RE.captures(&new_content).unwrap().name("args").unwrap().as_str();
+        ct = Some(CmdType::Latex);
+    } else if ASCII_RE.captures(&new_content).is_some() && ASCII_RE.captures(&new_content).unwrap().name("args").is_some() {
+        arg = ASCII_RE.captures(&new_content).unwrap().name("args").unwrap().as_str();
+        ct = Some(CmdType::Ascii);
+    }
+    
+    let new_text = match ct {
+        Some(CmdType::Ascii) => MathText::AsciiMath(String::from(arg)),
+        Some(CmdType::Latex) => MathText::Latex(String::from(arg)),
+        Some(CmdType::Inline) => MathText::Latex(String::from(arg)),
         _ => {return}
     };
-    
-    let user = match interaction.member {
-        Some(u) => u.user,
-        None => interaction.user,
-    };
-    
-    let math_messages_lock = {
-        let data_read = ctx.data.read().await;
-        data_read.get::<MathMessages>().expect("Oops!").clone() //TODO: Error handling
-    };
 
-    let c = interaction.data;
-    
-    if let ComponentType::Button = c.component_type {
-        {
-            let mut math_messages = math_messages_lock.write().await;
-            math_messages.make_contiguous();
-            
-            for j in math_messages.iter_mut() {
-                if j.message.is_some() && j.message.as_ref().unwrap().id == message.id && j.inp_message.author == user {
-                    match Buttons::from(c.custom_id.as_str()) {
-                        Buttons::Delete => {
-                            j.message.as_ref().unwrap().delete(ctx).await.unwrap();
-                        },
-                        _ => {}
-                    }
-                } else {
-                    return
-                }
-            }
-        }
-    }
+    let mut new_snip = MathSnip::new(new_text, &inp_message).await;
+    let _cmpl_result = new_snip.cmpl().await;
+
+    math_msg(&ctx, &msg_upd_event.channel_id, None, &msg_upd_event.author.unwrap(), &new_snip).await.unwrap();
+    push_to_interactables(&ctx, Box::new(new_snip.clone())).await;
+    push_to_editables(&ctx, Box::new(new_snip.clone())).await;
 }
+
+// pub fn component_interaction_handler_wrap(ctx: Context, interaction: Interaction) -> Pin<Box<dyn Future<Output = ()> + Send>> {
+//     Box::pin(component_interaction_handler(ctx, interaction.message_component().unwrap()))
+// }
+
+// async fn component_interaction_handler(ctx: Context, interaction: MessageComponentInteraction) {
+//     let message = match interaction.message {
+//         InteractionMessage::Regular(m) => m,
+//         _ => {return}
+//     };
+    
+//     let user = match interaction.member {
+//         Some(u) => u.user,
+//         None => interaction.user,
+//     };
+    
+//     let math_messages_lock = {
+//         let data_read = ctx.data.read().await;
+//         data_read.get::<Interactables>().expect("Oops!").clone() //TODO: Error handling
+//     };
+
+//     let c = interaction.data;
+    
+//     if let ComponentType::Button = c.component_type {
+//         {
+//             let mut math_messages = math_messages_lock.write().await;
+//             math_messages.make_contiguous();
+            
+//             for j in math_messages.iter_mut() {
+//                 if j.message.is_some() && j.message.as_ref().unwrap().id == message.id && j.inp_message.author == user {
+//                     match Buttons::from(c.custom_id.as_str()) {
+//                         Buttons::Delete => {
+//                             j.message.as_ref().unwrap().delete(&ctx).await.unwrap();
+//                         },
+//                         _ => {}
+//                     }
+//                 } else {
+//                     return
+//                 }
+//             }
+//         }
+//     }
+// }
 
 #[cfg_attr(debug_assertions, derive(Debug))]
 #[derive(Serialize, Deserialize, Clone)]
@@ -300,6 +310,114 @@ impl MathSnip {
     }
 }
 
+#[async_trait]
+impl Editable for MathSnip {
+    async fn edit(&mut self, ctx: &Context) -> Result<(), crate::botmods::errors::Error> {
+        if let Some(m) = &self.message {
+            lazy_static! {
+                static ref INLINE_RE: fancy_regex::Regex = fancy_regex::Regex::new(r"((\${1,2})(?![\s$]).+(?<![\s$])\2)|(\\[.*\\])|(\\(.*\\))").unwrap();
+                static ref LATEX_RE: Regex = Regex::new(format!(r"^{}latex (?P<args>.*)$", PREFIX).as_str()).unwrap();
+                static ref ASCII_RE: Regex = Regex::new(format!(r"^{}ascii (?P<args>.*)$", PREFIX).as_str()).unwrap();
+            };
+
+            m.delete(&ctx).await.unwrap();
+
+            if let Ok(im) = self.inp_message.channel_id.message(&ctx, self.inp_message.id).await {
+                if im.content == "" {
+                    return Ok(())
+                } else if INLINE_RE.captures(&im.content).unwrap().is_some() && INLINE_RE.captures(&im.content).unwrap().unwrap().name("args").is_some() {
+                    self.text = MathText::Latex(String::from(INLINE_RE.captures(&im.content).unwrap().unwrap().name("args").unwrap().as_str()));
+                } else if LATEX_RE.captures(&im.content).is_some() && LATEX_RE.captures(&im.content).unwrap().name("args").is_some() {
+                    self.text = MathText::Latex(String::from(LATEX_RE.captures(&im.content).unwrap().name("args").unwrap().as_str()));
+                } else if ASCII_RE.captures(&im.content).is_some() && ASCII_RE.captures(&im.content).unwrap().name("args").is_some() {
+                    self.text = MathText::Latex(String::from(ASCII_RE.captures(&im.content).unwrap().name("args").unwrap().as_str()));
+                } else {
+                    return Ok(())
+                }
+
+                self.cmpl().await.unwrap();
+
+                match math_msg(&ctx, &self.inp_message.channel_id, None, &self.inp_message.author, &self).await {
+                    Ok(m) => {
+                        self.message = Some(m);
+                    },
+                    Err(e) => {
+                        Err(e).unwrap()     //TODO: Fix
+                    }
+                }
+            }
+
+        }
+        return Ok(())
+    }
+
+    fn get_response_message_id(&self) -> Vec<MessageId> {
+        match &self.message {
+            Some(m) => vec![m.id.clone()],
+            None => vec![]
+        }
+    }
+
+    fn get_input_message_id(&self) -> serenity::model::id::MessageId {
+        self.inp_message.id.clone()
+    }
+
+    fn get_command_pattern(&self) -> Regex {
+            lazy_static! {
+                static ref INLINE_RE: fancy_regex::Regex = fancy_regex::Regex::new(r"((\${1,2})(?![\s$]).+(?<![\s$])\2)|(\\[.*\\])|(\\(.*\\))").unwrap();
+                static ref LATEX_RE: Regex = Regex::new(format!(r"^{}latex (?P<args>.*)$", PREFIX).as_str()).unwrap();
+                static ref ASCII_RE: Regex = Regex::new(format!(r"^{}ascii (?P<args>.*)$", PREFIX).as_str()).unwrap();
+            };
+
+            if INLINE_RE.captures(&self.inp_message.content).unwrap().is_some() && INLINE_RE.captures(&self.inp_message.content).unwrap().unwrap().name("args").is_some() {
+                return MOD_MARKUP.command_pattern[2].clone()
+            } else if LATEX_RE.captures(&self.inp_message.content).is_some() && LATEX_RE.captures(&self.inp_message.content).unwrap().name("args").is_some() {
+                return MOD_MARKUP.command_pattern[0].clone()
+            } else if ASCII_RE.captures(&self.inp_message.content).is_some() && ASCII_RE.captures(&self.inp_message.content).unwrap().name("args").is_some() {
+                return MOD_MARKUP.command_pattern[1].clone()
+            } else {
+                return MOD_MARKUP.command_pattern[2].clone()
+            }
+    }
+}
+
+#[async_trait]
+impl Interactable for MathSnip {
+    async fn interaction_respond(&mut self, ctx: &Context, interaction: Interaction) -> Result<(), crate::botmods::errors::Error> {
+        let component_interaction = match interaction {
+            Interaction::MessageComponent(m) => m,
+            _ => {return Ok(())}
+        };
+        
+        component_interaction.create_interaction_response(ctx, |r|{
+            r.kind(InteractionResponseType::UpdateMessage);
+            r.interaction_response_data(|d|{
+                d.flags(InteractionApplicationCommandCallbackDataFlags::EPHEMERAL);
+                d
+            });
+            r
+        }).await.unwrap();
+
+
+        if let Buttons::Delete = Buttons::from(component_interaction.data.custom_id.as_str()) {
+            if self.message.is_some() && self.message.as_ref().unwrap().author == component_interaction.user {
+                self.message.as_ref().unwrap().channel_id.delete_message(&ctx, self.message.as_ref().unwrap().id).await.unwrap();
+                self.message = None;
+            }
+        }
+
+        Ok(())
+    }
+
+    fn get_response_message_id(&self) -> Vec<MessageId> {
+        if let Some(m) = &self.message {
+            return vec![m.id.clone()]
+        } else {
+            return vec![]
+        }
+    }
+}
+
 async fn math_msg(ctx: &Context, c_id: &serenity::model::id::ChannelId, loading_msg: Option<&Message>, for_user: &serenity::model::user::User, math: &MathSnip) -> Result<Message, SerenityError> {
     if let Some(m) = loading_msg {
         m.delete(&ctx.http).await?;
@@ -356,7 +474,8 @@ pub async fn ascii(ctx: &Context, msg: &Message, arg: Args) -> CommandResult {
         Err(e) => Some(err_msg(ctx, &msg.channel_id, Some(&lm), &msg.author, &e).await?),
     };
     
-    math_messages_pusher(ctx, asm).await;
+    push_to_interactables(&ctx, Box::new(asm.clone())).await;
+    push_to_editables(&ctx, Box::new(asm.clone())).await;
 
     Ok(())
 }
@@ -382,27 +501,33 @@ pub async fn latex(ctx: &Context, msg: &Message, arg: Args) -> CommandResult {
         Err(e) => Some(err_msg(ctx, &msg.channel_id, Some(&lm), &msg.author, &e).await?),
     };
 
-    math_messages_pusher(ctx, latex).await;
+    push_to_interactables(&ctx, Box::new(latex.clone())).await;
+    push_to_editables(&ctx, Box::new(latex.clone())).await;
 
     Ok(())
 }
 
-pub async fn inline_latex(ctx: &Context, msg: &Message) -> CommandResult {
+pub fn inline_latex_wrap(ctx: Context, msg: Message) -> Pin<Box<dyn Future<Output = CommandResult> + Send>> {
+    Box::pin(inline_latex(ctx, msg))
+}
+
+async fn inline_latex(ctx: Context, msg: Message) -> CommandResult {
     let re_tex = fancy_regex::Regex::new(r"((\${1,2})(?![\s$]).+(?<![\s$])\2)|(\\[.*\\])|(\\(.*\\))").unwrap();
     let re_cmd = Regex::new(format!("{}{}{}", r"(^", PREFIX, r"latex.*)|(¯\\\\_(ツ)\\_/¯)").as_str()).unwrap();
     
     if re_tex.is_match(&msg.content).unwrap() && !re_cmd.is_match(&msg.content) {
-        let lm = loading_msg(ctx, &msg.channel_id).await.unwrap();
+        let lm = loading_msg(&ctx, &msg.channel_id).await.unwrap();
         
         let mut latex = MathSnip::new(MathText::Latex(String::from(&msg.content)), &msg).await;
         // latex.cmpl().await
 
         latex.message = match latex.cmpl().await {
-            Ok(_) => Some(math_msg(ctx, &msg.channel_id, Some(&lm), &msg.author, &latex).await?),
-            Err(e) => Some(err_msg(ctx, &msg.channel_id, Some(&lm), &msg.author, &e).await?),
+            Ok(_) => Some(math_msg(&ctx, &msg.channel_id, Some(&lm), &msg.author, &latex).await?),
+            Err(e) => Some(err_msg(&ctx, &msg.channel_id, Some(&lm), &msg.author, &e).await?),
         };
 
-        math_messages_pusher(ctx, latex).await;
+        push_to_interactables(&ctx, Box::new(latex.clone())).await;
+        push_to_editables(&ctx, Box::new(latex.clone())).await;
     };
 
     Ok(())

@@ -4,7 +4,15 @@ use serenity::{
     client::bridge::gateway::GatewayIntents,
 };
 use std::process;
-use wabot::{unknown_cmd, Handler, GENERAL_GROUP, HELP, MATH_GROUP, PREFIX, CONFIG, WOLFRAM_GROUP, load_queues};
+use wabot::{
+    unknown_cmd,
+    Handler,
+    // HELP,
+    PREFIX,
+    CONFIG,
+    load_queues,
+    botmods::MODS
+};
 
 #[tokio::main]
 async fn main() {
@@ -12,13 +20,14 @@ async fn main() {
     let token = {CONFIG.read().await.get::<String>("discord_token").unwrap()};
     let application_id = {CONFIG.read().await.get::<u64>("discord_appid").unwrap()};
 
-    let framework = StandardFramework::new()
+    let mut framework = StandardFramework::new()
         .configure(|c| c.prefix(PREFIX))
-        .group(&GENERAL_GROUP)
-        .group(&MATH_GROUP)
-        .group(&WOLFRAM_GROUP)
-        .help(&HELP)
+        // .help(&HELP)
         .unrecognised_command(unknown_cmd);
+
+    for m in MODS.iter() {
+        framework.group_add(m.command_group);
+    }
 
     let mut bot = match Client::builder(&token)
         .event_handler(Handler)
