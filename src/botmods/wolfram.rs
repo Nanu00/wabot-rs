@@ -615,7 +615,7 @@ impl Interactable for WolfMessage {
             InteractionMessage::Ephemeral(_) => {return Ok(())}
         };
 
-        if message.author != component_interaction.user {
+        if self.inp_message.author != component_interaction.user {
             return Ok(())
         }
 

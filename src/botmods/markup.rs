@@ -400,7 +400,7 @@ impl Interactable for MathSnip {
 
 
         if let Buttons::Delete = Buttons::from(component_interaction.data.custom_id.as_str()) {
-            if self.message.is_some() && self.message.as_ref().unwrap().author == component_interaction.user {
+            if self.inp_message.author == component_interaction.user {
                 self.message.as_ref().unwrap().channel_id.delete_message(&ctx, self.message.as_ref().unwrap().id).await.unwrap();
                 self.message = None;
             }
