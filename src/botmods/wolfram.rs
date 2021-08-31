@@ -21,6 +21,8 @@ use crate::{
     },
     CONFIG,
     PREFIX,
+    Interactables,
+    Editables
 };
 use serenity::{
     async_trait,
@@ -98,7 +100,10 @@ fn edit_handler_wrap(ctx: Context, msg_upd_event: MessageUpdateEvent) -> Pin<Box
 }
 
 pub async fn edit_handler(ctx: Context, msg_upd_event: MessageUpdateEvent) {
-    let inp_message = msg_upd_event.channel_id.message(&ctx, msg_upd_event.id).await.unwrap();
+    let inp_message = match msg_upd_event.channel_id.message(&ctx, msg_upd_event.id).await {
+        Ok(m) => m,
+        Err(_) => {return},
+    };
 
     lazy_static! {
         static ref WOLFRAM_RE: Regex = Regex::new(format!(r"^{}wolfram (?P<args>.*)$", PREFIX).as_str()).unwrap();
@@ -420,7 +425,11 @@ impl WolfMessage {
                     }
                 }
                 e.footer(|f| {
-                    f.icon_url(self.inp_message.author.avatar_url().unwrap());
+                    if let Some(u) = self.inp_message.author.avatar_url() {
+                        f.icon_url(u);
+                    } else {
+                        f.icon_url(self.inp_message.author.default_avatar_url());
+                    }
                     f.text(format!("Requested by {}#{}", self.inp_message.author.name, self.inp_message.author.discriminator));
                     f
                 });
@@ -497,14 +506,14 @@ impl PodMessage {
                 })
             });
             m
-        }).await.unwrap());
+        }).await?);
 
         Ok(())
     }
     
     async fn delete_message(&mut self, ctx: &Context) -> Result<(), errors::Error> {
         if let Some(m) = self.message.as_ref() {
-            m.delete(ctx).await.unwrap();
+            m.delete(ctx).await?;
             self.message = None;
         }
         Ok(())
@@ -519,7 +528,7 @@ impl PodMessage {
                     e
                 });
                 m
-            }).await.unwrap();
+            }).await?;
             self.curr_spod = spod;
         }
         Ok(())
@@ -528,7 +537,8 @@ impl PodMessage {
 
 #[async_trait]
 impl Editable for WolfMessage {
-    async fn edit(&mut self, ctx: &Context) -> Result<(), crate::botmods::errors::Error> {
+    async fn edit(&mut self, ctx: &Context) -> Result<(), errors::Error> {
+        let old_m = self.header_message.clone();
         self.delete(&ctx).await;
 
         lazy_static! {
@@ -541,7 +551,7 @@ impl Editable for WolfMessage {
             Opt::Output("json".to_string()),
         ];
 
-        let inp_message = self.inp_message.channel_id.message(&ctx, self.inp_message.id).await.unwrap();
+        let inp_message = self.inp_message.channel_id.message(&ctx, self.inp_message.id).await?;
 
         let mut arg = "";
 
@@ -551,11 +561,38 @@ impl Editable for WolfMessage {
             arg = c.name("args").unwrap().as_str();
         }
 
-        let new_w = QueryResult::new(Opt::Input(arg.to_string()), opts).await.unwrap();
+        let new_w = QueryResult::new(Opt::Input(arg.to_string()), opts).await?;
         let mut new_wm = WolfMessage::new(new_w.clone(), inp_message.clone(), new_w.pods).await;
 
         self = &mut new_wm;
         self.send_messages(&ctx).await;
+
+        let interactables_lock = {
+            let data_read = ctx.data.read().await;
+            data_read.get::<Interactables>().expect("Oops!").clone() //TODO: Error handling
+        };
+
+        {
+            let mut interactables = interactables_lock.write().await;
+            interactables.make_contiguous();
+
+            let mut pos: Option<usize> = None;
+            
+            'outer: for (p, i) in interactables.iter().enumerate() {
+                for j in i.get_response_message_id() {
+                    if let Some(m) = &old_m {
+                        if m.id == j {
+                            pos = Some(p);
+                            break 'outer;
+                        }
+                    }
+                }
+            }
+
+            if let Some(p) = pos {
+                interactables[p] = Box::new(self.clone());
+            }
+        }
         
         return Ok(())
     }
@@ -595,7 +632,8 @@ impl Editable for WolfMessage {
 
 #[async_trait]
 impl Interactable for WolfMessage {
-    async fn interaction_respond(&mut self, ctx: &Context, interaction: Interaction) -> Result<(), crate::botmods::errors::Error> {
+    async fn interaction_respond(&mut self, ctx: &Context, interaction: Interaction) -> Result<(), errors::Error> {
+        let old_m = self.header_message.clone();
         let component_interaction = match interaction {
             Interaction::MessageComponent(m) => m,
             _ => {return Ok(())}
@@ -608,7 +646,7 @@ impl Interactable for WolfMessage {
                 d
             });
             r
-        }).await.unwrap();
+        }).await?;
 
         let message = match &component_interaction.message {
             InteractionMessage::Regular(m) => m,
@@ -625,20 +663,20 @@ impl Interactable for WolfMessage {
                     if i.message.is_some() && i.message.as_ref().unwrap().id == message.id {
                         match Buttons::from(component_interaction.data.custom_id.as_str()) {
                             Buttons::Delete => {
-                                i.delete_message(&ctx).await.unwrap();
+                                i.delete_message(&ctx).await?;
                             },
                             Buttons::Next => {
                                 if i.curr_spod == (i.pod.subpods.len()-1) {
-                                    i.change_spod(&ctx, 0).await.unwrap();
+                                    i.change_spod(&ctx, 0).await?;
                                 } else {
-                                    i.change_spod(&ctx, i.curr_spod+1).await.unwrap();
+                                    i.change_spod(&ctx, i.curr_spod+1).await?;
                                 }
                             },
                             Buttons::Prev => {
                                 if i.curr_spod == 0 {
-                                    i.change_spod(&ctx, i.pod.subpods.len()-1).await.unwrap();
+                                    i.change_spod(&ctx, i.pod.subpods.len()-1).await?;
                                 } else {
-                                    i.change_spod(&ctx, i.curr_spod-1).await.unwrap();
+                                    i.change_spod(&ctx, i.curr_spod-1).await?;
                                 }
                             },
                             _ => {}
@@ -656,7 +694,7 @@ impl Interactable for WolfMessage {
                 }
             },
             ComponentType::SelectMenu => {
-                if self.header_message.as_ref().unwrap().id == message.id {
+                if self.header_message.is_some() && self.header_message.as_ref().unwrap().id == message.id {
                     for v in &component_interaction.data.values {
                         lazy_static! {
                             static ref POD_RE: Regex = Regex::new(r"^POD(?P<n>\d+)").unwrap();
@@ -664,13 +702,43 @@ impl Interactable for WolfMessage {
                         if let Some(cap) = POD_RE.captures(&v) {
                             if let Some(n) = cap.name("n") {
                                 let n = n.as_str().parse::<usize>().unwrap();
-                                self.pod_messages[n].send_message(&ctx, message.channel_id).await.unwrap();
+                                self.pod_messages[n].send_message(&ctx, message.channel_id).await?;
                             }
                         }
                     }
                 }
             },
             _ => {}
+        }
+
+        let editables_lock = {
+            let data_read = ctx.data.read().await;
+            data_read.get::<Editables>().expect("Oops!").clone() //TODO: Error handling
+        };
+
+        {
+            let mut editables = editables_lock.write().await;
+            editables.make_contiguous();
+
+            let mut pos: Option<usize> = None;
+            
+            'outer: for (p, i) in editables.iter().enumerate() {
+                for j in i.get_response_message_id() {
+                    if let Some(m) = &old_m {
+                        if m.id == j {
+                            pos = Some(p);
+                            break 'outer;
+                        }
+                    }
+                }
+                if self.inp_message.id == i.get_input_message_id() {
+                    pos = Some(p);
+                }
+            }
+
+            if let Some(p) = pos {
+                editables[p] = Box::new(self.clone());
+            }
         }
         
         Ok(())
@@ -698,7 +766,7 @@ pub async fn wolfram(ctx: &Context, msg: &Message, arg: Args) -> CommandResult {
         Some(r) => Ok(r),
         None => {
             let err = errors::Error::ArgError(1, 0);
-            errors::err_msg(ctx, &msg.channel_id, Some(&lm), &msg.author, &err).await?;
+            errors::err_msg(ctx, &msg.channel_id, Some(&lm), Some(&msg.author), &err).await?;
             Err(err)
         }
     }?;
@@ -708,7 +776,7 @@ pub async fn wolfram(ctx: &Context, msg: &Message, arg: Args) -> CommandResult {
         Opt::Output("json".to_string()),
         ];
     
-    let w = QueryResult::new(Opt::Input(query.to_string()), opts).await.unwrap();
+    let w = QueryResult::new(Opt::Input(query.to_string()), opts).await?;
     
     let mut wm = WolfMessage::new(w.clone(), msg.clone(), w.pods).await;
 
@@ -716,7 +784,7 @@ pub async fn wolfram(ctx: &Context, msg: &Message, arg: Args) -> CommandResult {
     
     if wm.result.json["error"].is_object() {
         if let Value::Object(a) = &wm.result.json["error"] {
-            errors::err_msg(ctx, &msg.channel_id, Some(&lm), &msg.author, &errors::Error::WolfError(a["msg"].to_string(), a["code"].to_string().parse::<u32>().unwrap())).await.unwrap();
+            errors::err_msg(ctx, &msg.channel_id, Some(&lm), Some(&msg.author), &errors::Error::WolfError(a["msg"].to_string(), a["code"].to_string().parse::<u32>().unwrap())).await?;
         } 
     } else {
         wm.send_messages(ctx).await;

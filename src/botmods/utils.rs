@@ -32,7 +32,8 @@ use crate::{
     Interactables,
     Editables,
     EDIT_BUFFER_SIZE,
-    INTERACT_BUFFER_SIZE
+    INTERACT_BUFFER_SIZE,
+    botmods::errors,
 };
 
 pub struct BotModule {
@@ -45,7 +46,7 @@ pub struct BotModule {
 
 #[async_trait]
 pub trait Editable {
-    async fn edit(&mut self, ctx: &Context) -> Result<(), crate::botmods::errors::Error>;
+    async fn edit(&mut self, ctx: &Context) -> Result<(), errors::Error>;
     fn get_response_message_id(&self) -> Vec<MessageId>;
     fn get_input_message_id(&self) -> MessageId;
     fn get_command_pattern(&self) -> Regex;

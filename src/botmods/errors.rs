@@ -8,17 +8,21 @@ use std::{
 use usvg;
 use png;
 use serenity::{
-    model::channel::Message, 
+    model::{
+    channel::Message,
+    id::ChannelId,
+    user::User,
+    },
     prelude::*,
 };
 use reqwest;
 
-pub async fn err_msg(ctx: &Context, c_id: &serenity::model::id::ChannelId, loading_msg: Option<&Message>, for_user: &serenity::model::user::User, er: &(impl StdErr + Display)) -> Result<Message, SerenityError> {
+pub async fn err_msg(ctx: &Context, c_id: &ChannelId, loading_msg: Option<&Message>, for_user: Option<&User>, err: &(impl StdErr + Display)) -> Result<Message, SerenityError> {
     if let Some(l) = loading_msg {
         l.delete(&ctx.http).await?;
     }
 
-    let mut err_str = format!("There was an error:\n{}", er).to_string();
+    let mut err_str = format!("There was an error:\n{}", err).to_string();
 
     if err_str.len() > 2000 {
         err_str.truncate(1997);
@@ -29,11 +33,17 @@ pub async fn err_msg(ctx: &Context, c_id: &serenity::model::id::ChannelId, loadi
         m.embed(|e| {
             e.title("Error");
             e.description(err_str);
-            e.footer(|f| {
-                f.icon_url(for_user.avatar_url().unwrap());
-                f.text(format!("Requested by {}#{}", for_user.name, for_user.discriminator));
-                f
-            });
+            if let Some(u) = for_user {
+                e.footer(|f| {
+                    if let Some(a) = u.avatar_url() {
+                        f.icon_url(a);
+                    } else {
+                        f.icon_url(u.default_avatar_url());
+                    }
+                    f.text(format!("Requested by {}#{}", u.name, u.discriminator));
+                    f
+                });
+            }
             e
         });
         m
@@ -48,7 +58,9 @@ pub enum Error {
     ArgError(u8, u8),
     MathError(String),
     RequestError(reqwest::Error),
-    WolfError(String, u32)
+    WolfError(String, u32),
+    SerenityError(serenity::Error),
+    NoImgError()
 }
 
 impl From<usvg::Error> for Error {
@@ -75,6 +87,12 @@ impl From<reqwest::Error> for Error {
     }
 }
 
+impl From<serenity::Error> for Error {
+    fn from(e: serenity::Error) -> Error {
+        Error::SerenityError(e)
+    }
+}
+
 impl Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
@@ -84,7 +102,9 @@ impl Display for Error {
             Error::ArgError(rec, need) => f.write_str(&format!("Expected {} argument(s), recieved {}", need, rec)),
             Error::MathError(e) => f.write_str(&format!("Compilation error:\n```{}```", e)),
             Error::RequestError(e) => f.write_str(&format!("Request error:\n{}", e)),
-            Error::WolfError(e, c) => f.write_str(&format!("Wolfram error {} :\n{}", c, e))
+            Error::WolfError(e, c) => f.write_str(&format!("Wolfram error {} :\n{}", c, e)),
+            Error::SerenityError(e) => f.write_str(&format!("Serenity Error:\n{}", e)),
+            Error::NoImgError() => f.write_str(&format!("Error:\nNo image"))
         }
     }
 }
@@ -95,6 +115,7 @@ impl StdErr for Error {
             Error::SVGError(inner) => Some(inner),
             Error::PNGError(inner) => Some(inner),
             Error::IOError(inner) => Some(inner),
+            Error::SerenityError(inner) => Some(inner),
             _ => None,
         }
     }

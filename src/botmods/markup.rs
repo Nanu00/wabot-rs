@@ -46,7 +46,9 @@ use crate::{
             push_to_interactables
         },
     },
-    PREFIX
+    PREFIX,
+    Interactables,
+    Editables
 };
 use regex::Regex;
 use tokio::process::Command;
@@ -120,7 +122,10 @@ async fn edit_handler(ctx: Context, msg_upd_event: MessageUpdateEvent) {
         static ref ASCII_RE: Regex = Regex::new(format!(r"^{}ascii (?P<args>.*)$", PREFIX).as_str()).unwrap();
     };
 
-    let inp_message = msg_upd_event.channel_id.message(&ctx, msg_upd_event.id).await.unwrap();
+    let inp_message = match msg_upd_event.channel_id.message(&ctx, msg_upd_event.id).await {
+        Ok(m) => m,
+        Err(_) => {return},
+    };
 
     let new_content = match &msg_upd_event.content {
         Some(c) => String::from(c),
@@ -303,16 +308,19 @@ impl MathSnip {
         let mut pixmap = tiny_skia::Pixmap::new(pixmap_size.width()*SCALE, pixmap_size.height()*SCALE).unwrap();
         pixmap.fill(Color::BLACK);
 
-        resvg::render(&svg_tree, usvg::FitTo::Zoom(SCALE as f32), pixmap.as_mut()).unwrap();
+        if let Some(()) = resvg::render(&svg_tree, usvg::FitTo::Zoom(SCALE as f32), pixmap.as_mut()) {
+            self.image = Some(pixmap.encode_png()?);
+        } else {
+            return Err(errors::Error::NoImgError());
+        }
         
-        self.image = Some(pixmap.encode_png()?);
         Ok(())
     }
 }
 
 #[async_trait]
 impl Editable for MathSnip {
-    async fn edit(&mut self, ctx: &Context) -> Result<(), crate::botmods::errors::Error> {
+    async fn edit(&mut self, ctx: &Context) -> Result<(), errors::Error> {
         if let Some(m) = &self.message {
             lazy_static! {
                 static ref INLINE_RE: fancy_regex::Regex = fancy_regex::Regex::new(r"((\${1,2})(?![\s$]).+(?<![\s$])\2)|(\\[.*\\])|(\\(.*\\))").unwrap();
@@ -320,7 +328,9 @@ impl Editable for MathSnip {
                 static ref ASCII_RE: Regex = Regex::new(format!(r"^{}ascii (?P<args>.*)$", PREFIX).as_str()).unwrap();
             };
 
-            m.delete(&ctx).await.unwrap();
+            let old_m = m.clone();
+
+            m.delete(&ctx).await?;
 
             if let Ok(im) = self.inp_message.channel_id.message(&ctx, self.inp_message.id).await {
                 if im.content == "" {
@@ -335,17 +345,42 @@ impl Editable for MathSnip {
                     return Ok(())
                 }
 
-                self.cmpl().await.unwrap();
+                self.cmpl().await?;
 
                 match math_msg(&ctx, &self.inp_message.channel_id, None, &self.inp_message.author, &self).await {
                     Ok(m) => {
                         self.message = Some(m);
                     },
                     Err(e) => {
-                        Err(e).unwrap()     //TODO: Fix
+                        Err(e)?    //TODO: Fix
                     }
                 }
             }
+
+        let interactables_lock = {
+            let data_read = ctx.data.read().await;
+            data_read.get::<Interactables>().expect("Oops!").clone() //TODO: Error handling
+        };
+
+        {
+            let mut interactables = interactables_lock.write().await;
+            interactables.make_contiguous();
+
+            let mut pos: Option<usize> = None;
+            
+            'outer: for (p, i) in interactables.iter().enumerate() {
+                for j in i.get_response_message_id() {
+                    if old_m.id == j {
+                        pos = Some(p);
+                        break 'outer;
+                    }
+                }
+            }
+
+            if let Some(p) = pos {
+                interactables[p] = Box::new(self.clone());
+            }
+        }
 
         }
         return Ok(())
@@ -383,7 +418,7 @@ impl Editable for MathSnip {
 
 #[async_trait]
 impl Interactable for MathSnip {
-    async fn interaction_respond(&mut self, ctx: &Context, interaction: Interaction) -> Result<(), crate::botmods::errors::Error> {
+    async fn interaction_respond(&mut self, ctx: &Context, interaction: Interaction) -> Result<(), errors::Error> {
         let component_interaction = match interaction {
             Interaction::MessageComponent(m) => m,
             _ => {return Ok(())}
@@ -396,13 +431,44 @@ impl Interactable for MathSnip {
                 d
             });
             r
-        }).await.unwrap();
+        }).await?;
 
+        let old_m = self.message.clone();
 
         if let Buttons::Delete = Buttons::from(component_interaction.data.custom_id.as_str()) {
             if self.inp_message.author == component_interaction.user {
-                self.message.as_ref().unwrap().channel_id.delete_message(&ctx, self.message.as_ref().unwrap().id).await.unwrap();
+                self.message.as_ref().unwrap().channel_id.delete_message(&ctx, self.message.as_ref().unwrap().id).await?;
                 self.message = None;
+            }
+        }
+
+        let editables_lock = {
+            let data_read = ctx.data.read().await;
+            data_read.get::<Editables>().expect("Oops!").clone() //TODO: Error handling
+        };
+
+        {
+            let mut editables = editables_lock.write().await;
+            editables.make_contiguous();
+
+            let mut pos: Option<usize> = None;
+            
+            'outer: for (p, i) in editables.iter().enumerate() {
+                for j in i.get_response_message_id() {
+                    if let Some(m) = &old_m {
+                        if m.id == j {
+                            pos = Some(p);
+                            break 'outer;
+                        }
+                    }
+                }
+                if self.inp_message.id == i.get_input_message_id() {
+                    pos = Some(p);
+                }
+            }
+
+            if let Some(p) = pos {
+                editables[p] = Box::new(self.clone());
             }
         }
 
@@ -433,7 +499,11 @@ async fn math_msg(ctx: &Context, c_id: &serenity::model::id::ChannelId, loading_
             e.description(format!("Input: {}", &math.text.as_str()));
             e.image("attachment://image.png");
             e.footer(|f| {
-                f.icon_url(for_user.avatar_url().unwrap());
+                if let Some(a) = for_user.avatar_url() {
+                    f.icon_url(a);
+                } else {
+                    f.icon_url(for_user.default_avatar_url());
+                }
                 f.text(format!("Requested by {}#{}", for_user.name, for_user.discriminator));
                 f
             });
@@ -462,7 +532,7 @@ pub async fn ascii(ctx: &Context, msg: &Message, arg: Args) -> CommandResult {
         Some(r) => Ok(r),
         None => {
             let err = errors::Error::ArgError(1, 0);
-            err_msg(ctx, &msg.channel_id, Some(&lm), &msg.author, &err).await?;
+            err_msg(ctx, &msg.channel_id, Some(&lm), Some(&msg.author), &err).await?;
             Err(err)
         },
     }?;
@@ -471,7 +541,7 @@ pub async fn ascii(ctx: &Context, msg: &Message, arg: Args) -> CommandResult {
     
     asm.message = match asm.cmpl().await {
         Ok(_) => Some(math_msg(ctx, &msg.channel_id, Some(&lm), &msg.author, &asm).await?),
-        Err(e) => Some(err_msg(ctx, &msg.channel_id, Some(&lm), &msg.author, &e).await?),
+        Err(e) => Some(err_msg(ctx, &msg.channel_id, Some(&lm), Some(&msg.author), &e).await?),
     };
     
     push_to_interactables(&ctx, Box::new(asm.clone())).await;
@@ -489,7 +559,7 @@ pub async fn latex(ctx: &Context, msg: &Message, arg: Args) -> CommandResult {
         Some(r) => Ok(r),
         None => {
             let err = errors::Error::ArgError(1, 0);
-            err_msg(ctx, &msg.channel_id, Some(&lm), &msg.author, &err).await?;
+            err_msg(ctx, &msg.channel_id, Some(&lm), Some(&msg.author), &err).await?;
             Err(err)
         },
     }?;
@@ -498,7 +568,7 @@ pub async fn latex(ctx: &Context, msg: &Message, arg: Args) -> CommandResult {
     
     latex.message = match latex.cmpl().await {
         Ok(_) => Some(math_msg(ctx, &msg.channel_id, Some(&lm), &msg.author, &latex).await?),
-        Err(e) => Some(err_msg(ctx, &msg.channel_id, Some(&lm), &msg.author, &e).await?),
+        Err(e) => Some(err_msg(ctx, &msg.channel_id, Some(&lm), Some(&msg.author), &e).await?),
     };
 
     push_to_interactables(&ctx, Box::new(latex.clone())).await;
@@ -516,15 +586,17 @@ async fn inline_latex(ctx: Context, msg: Message) -> CommandResult {
     let re_cmd = Regex::new(format!("{}{}{}", r"(^", PREFIX, r"latex.*)|(¯\\\\_(ツ)\\_/¯)").as_str()).unwrap();
     
     if re_tex.is_match(&msg.content).unwrap() && !re_cmd.is_match(&msg.content) {
-        let lm = loading_msg(&ctx, &msg.channel_id).await.unwrap();
+        let lm = loading_msg(&ctx, &msg.channel_id).await?;
         
         let mut latex = MathSnip::new(MathText::Latex(String::from(&msg.content)), &msg).await;
-        // latex.cmpl().await
+        latex.cmpl().await?;
 
-        latex.message = match latex.cmpl().await {
-            Ok(_) => Some(math_msg(&ctx, &msg.channel_id, Some(&lm), &msg.author, &latex).await?),
-            Err(e) => Some(err_msg(&ctx, &msg.channel_id, Some(&lm), &msg.author, &e).await?),
-        };
+        math_msg(&ctx, &msg.channel_id, Some(&lm), &msg.author, &latex).await?;
+
+        // latex.message = match latex.cmpl().await {
+        //     Ok(_) => Some(math_msg(&ctx, &msg.channel_id, Some(&lm), &msg.author, &latex).await?),
+        //     Err(e) => Some(err_msg(&ctx, &msg.channel_id, Some(&lm), Some(&msg.author), &e).await?),
+        // };
 
         push_to_interactables(&ctx, Box::new(latex.clone())).await;
         push_to_editables(&ctx, Box::new(latex.clone())).await;
