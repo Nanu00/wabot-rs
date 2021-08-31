@@ -7,7 +7,7 @@ use std::process;
 use wabot::{
     unknown_cmd,
     Handler,
-    // HELP,
+    HELP,
     PREFIX,
     CONFIG,
     load_queues,
@@ -22,7 +22,7 @@ async fn main() {
 
     let mut framework = StandardFramework::new()
         .configure(|c| c.prefix(PREFIX))
-        // .help(&HELP)
+        .help(&HELP)
         .unrecognised_command(unknown_cmd);
 
     for m in MODS.iter() {
