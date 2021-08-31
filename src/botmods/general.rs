@@ -1,3 +1,4 @@
+use regex::Regex;
 use serenity::{
     model::{
         channel::Message,
@@ -6,12 +7,40 @@ use serenity::{
     prelude::*,
     framework::standard::
     {
-        CommandResult, macros::command
+        CommandResult,
+        macros::{
+            command,
+            group,
+        },
     },
     client::bridge::gateway::ShardId,
 };
 use std::time::Instant;
-use crate::ShardManagerContainer;
+use crate::{
+    PREFIX,
+    ShardManagerContainer,
+    botmods::utils::BotModule,
+};
+use lazy_static;
+
+lazy_static!(
+    pub static ref MOD_GENERAL: BotModule = BotModule {
+        command_group: &GENERAL_GROUP,
+        command_pattern: vec![
+            Regex::new(format!(r"^{}ping$", PREFIX).as_str()).unwrap(),
+            Regex::new(format!(r"^{}about$", PREFIX).as_str()).unwrap(),
+            Regex::new(format!(r"^{}invite$", PREFIX).as_str()).unwrap(),
+        ],
+        editors: vec![],
+        interactors: vec![],
+        watchers: vec![],
+    };
+);
+
+#[group]
+#[summary = "General commands"]
+#[commands(ping, about, invite)]
+struct General;
 
 #[command]
 #[description = "Simple command to check if the bot is online"]

@@ -2,9 +2,9 @@ use regex::Regex;
 use std::{
     fmt::Display,
     fmt,
-    sync::Arc,
-    collections::VecDeque,
+    pin::Pin,
 };
+use futures::Future;
 use crate::{
     botmods::{
         errors,
@@ -12,31 +12,46 @@ use crate::{
             loading_msg,
             Buttons,
             MenuItem,
+            BotModule,
+            Editable,
+            Interactable,
+            push_to_editables,
+            push_to_interactables,
         },
-        logging::log_write
     },
     CONFIG,
     PREFIX,
+    Interactables,
+    Editables
 };
-use serenity::{framework::standard::
-    {
-        CommandResult, macros::command, Args,
+use serenity::{
+    async_trait,
+    framework::standard::{
+        CommandResult,
+        macros::{
+            command,
+            group
+        },
+        Args,
     },
     model::{
         channel::Message,
-        id::ChannelId,
-        interactions::message_component::{
-            ComponentType,
-            InteractionMessage,
-            MessageComponentInteraction,
+        id::{
+            ChannelId,
+            MessageId,
+        },
+        interactions::{
+            message_component::{
+                ComponentType,
+                InteractionMessage,
+            },
+            InteractionResponseType,
+            InteractionApplicationCommandCallbackDataFlags,
+            Interaction,
         },
         prelude::MessageUpdateEvent,
     },
-    prelude::{
-        Context,
-        TypeMapKey,
-        RwLock,
-    }
+    prelude::Context,
 };
 use serde_json::Value;
 use urlencoding::encode;
@@ -44,9 +59,29 @@ use serde::{
     Serialize,
     Deserialize
 };
+use lazy_static;
 
+lazy_static!(
+    pub static ref MOD_WOLFRAM: BotModule = BotModule {
+        command_group: &WOLFRAM_GROUP,
+        command_pattern: vec![
+            Regex::new(format!(r"^{}wolfram .*$", PREFIX).as_str()).unwrap(),
+            Regex::new(format!(r"^{}w .*$", PREFIX).as_str()).unwrap(),
+        ],
+        editors: vec![
+            edit_handler_wrap,
+        ],
+        interactors: vec![
+            // component_interaction_handler_wrap,
+        ],
+        watchers: vec![],
+    };
+);
 
-pub const EDIT_BUFFER_SIZE: usize = 10;
+#[group]
+#[summary = "Wolfram commands"]
+#[commands(wolfram)]
+struct Wolfram;
 
 #[derive(PartialEq)]
 pub enum CmdType {
@@ -60,173 +95,147 @@ lazy_static!{
     ];
 }
 
-#[cfg_attr(debug_assertions, derive(Debug))]
-pub struct WolframMessages;
-
-impl TypeMapKey for WolframMessages {
-    type Value = Arc<RwLock<VecDeque<WolfMessage>>>;
+fn edit_handler_wrap(ctx: Context, msg_upd_event: MessageUpdateEvent) -> Pin<Box<dyn Future<Output = ()> + Send>> {
+    Box::pin(edit_handler(ctx, msg_upd_event))
 }
 
-async fn wolf_messages_pusher(ctx: &Context, wm: WolfMessage) {
-    let wms_lock = {
-        let data_read = ctx.data.read().await;
-        data_read.get::<WolframMessages>().expect("Oops!").clone()  //TODO: Error handling
+pub async fn edit_handler(ctx: Context, msg_upd_event: MessageUpdateEvent) {
+    let inp_message = match msg_upd_event.channel_id.message(&ctx, msg_upd_event.id).await {
+        Ok(m) => m,
+        Err(_) => {return},
     };
 
-    {
-        let mut wms = wms_lock.write().await;
-        wms.push_front(wm.clone());
+    lazy_static! {
+        static ref WOLFRAM_RE: Regex = Regex::new(format!(r"^{}wolfram (?P<args>.*)$", PREFIX).as_str()).unwrap();
+        static ref ALIAS_RE: Regex = Regex::new(format!(r"^{}w (?P<args>.*)$", PREFIX).as_str()).unwrap();
+    };
 
-        if wms.len() > EDIT_BUFFER_SIZE {
-            wms.truncate(EDIT_BUFFER_SIZE);
-        }
-    }
-
-    log_write(wm).await;
-}
-
-pub async fn edit_handler(ctx: &Context, msg_upd_event: &MessageUpdateEvent, arg: &str, _: &CmdType) {
-    let lm = loading_msg(&ctx, &msg_upd_event.channel_id).await.unwrap();
-    let inp_message = msg_upd_event.channel_id.message(&ctx, msg_upd_event.id).await.unwrap();
-    
     let opts = vec![
         Opt::Format("image".to_string()),
         Opt::Output("json".to_string()),
-        ];
+    ];
+
+    let arg: &str;
+
+    if let Some(c) = WOLFRAM_RE.captures(&inp_message.content) {
+        arg = c.name("args").unwrap().as_str();
+    } else if let Some(c) = ALIAS_RE.captures(&inp_message.content) {
+        arg = c.name("args").unwrap().as_str();
+    } else {
+        return
+    }
+
+    let lm = loading_msg(&ctx, &inp_message.channel_id).await.unwrap();
 
     let new_w = QueryResult::new(Opt::Input(arg.to_string()), opts).await.unwrap();
     let mut new_wm = WolfMessage::new(new_w.clone(), inp_message.clone(), new_w.pods).await;
-    
-    let wms_lock = {
-        let data_read = ctx.data.read().await;
-        data_read.get::<WolframMessages>().expect("Oops!").clone()  //TODO: Error handling
-    };
-    
-    {
-        let mut wms = wms_lock.write().await;
-        wms.make_contiguous();
-        
-        let mut msg_index: Option<usize> = None;
 
-        for (i, j) in wms.iter().enumerate() {
-            if j.inp_message.id == inp_message.id {
-                msg_index = Some(i);
-            }
-        }
-        
-        let msg_index = match msg_index {
-            Some(i) => i,
-            None => {return}
-        };
-        
-        let old_wm = wms.get_mut(msg_index).unwrap();
-        old_wm.delete(ctx).await;
-        
-        lm.delete(ctx).await.unwrap();
-        new_wm.send_messages(ctx).await;
-        
-        wms.insert(msg_index, new_wm);
-        wms.remove(msg_index+1);
-    }
-    
+    lm.delete(&ctx).await.unwrap();
+    new_wm.send_messages(&ctx).await;
+    push_to_editables(&ctx, Box::new(new_wm)).await;
+    // push_to_interactables(&ctx, Box::new(new_wm)).await;
 }
 
-pub async fn component_interaction_handler(ctx: &Context, interaction: MessageComponentInteraction) {
-    let message = match interaction.message {
-        InteractionMessage::Regular(m) => m,
-        _ => {return}
-    };
+// pub fn component_interaction_handler_wrap(ctx: Context, interaction: Interaction) -> Pin<Box<dyn Future<Output = ()> + Send>> {
+//     Box::pin(component_interaction_handler(ctx, interaction.message_component().unwrap()))
+// }
+
+// pub async fn component_interaction_handler(ctx: Context, interaction: MessageComponentInteraction) {
+//     let message = match interaction.message {
+//         InteractionMessage::Regular(m) => m,
+//         _ => {return}
+//     };
     
-    let user = match interaction.member {
-        Some(u) => u.user,
-        None => interaction.user,
-    };
+//     let user = match interaction.member {
+//         Some(u) => u.user,
+//         None => interaction.user,
+//     };
 
-    let c = interaction.data;
+//     let c = interaction.data;
 
-    match c.component_type {
-        ComponentType::Button => {
-            let wms_lock = {
-                let data_read = ctx.data.read().await;
-                data_read.get::<WolframMessages>().expect("Oops!").clone()  //TODO: Error handling
-            };
+//     match c.component_type {
+//         ComponentType::Button => {
+//             let wms_lock = {
+//                 let data_read = ctx.data.read().await;
+//                 data_read.get::<WolframMessages>().expect("Oops!").clone()  //TODO: Error handling
+//             };
 
-            {
-                let mut wms = wms_lock.write().await;
-                wms.make_contiguous();
+//             {
+//                 let mut wms = wms_lock.write().await;
+//                 wms.make_contiguous();
                 
-                for i in wms.iter_mut() {
-                    if i.inp_message.author != user {
-                        continue;
-                    }
-                    if i.header_message.as_ref().unwrap().id == message.id {
-                        match Buttons::from(c.custom_id.as_str()) {
-                            Buttons::Delete => {i.delete(ctx).await;}
-                            // Buttons::Pod(_, n) => {i.pod_messages[n].send_message(ctx, message.channel_id).await.unwrap();},
-                            _ => {}
-                        }
-                    } else {
-                        for j in i.pod_messages.iter_mut() {
-                            if j.message.is_some() && j.message.as_ref().unwrap().id == message.id {
-                                match Buttons::from(c.custom_id.as_str()) {
-                                    Buttons::Next => {
-                                        if j.curr_spod == (j.pod.subpods.len()-1) {
-                                            j.change_spod(ctx, 0).await.unwrap();
-                                        } else {
-                                            j.change_spod(ctx, j.curr_spod+1).await.unwrap();
-                                        }
-                                    },
-                                    Buttons::Prev => {
-                                        if j.curr_spod == 0 {
-                                            j.change_spod(ctx, j.pod.subpods.len() -1).await.unwrap();
-                                        } else {
-                                            j.change_spod(ctx, j.curr_spod-1).await.unwrap();
-                                        }
-                                    },
-                                    Buttons::Delete => {
-                                        j.delete_message(ctx).await.unwrap();
-                                    },
-                                    _ => {}
-                                }
-                            }
-                        }
-                    }
-                }
+//                 for i in wms.iter_mut() {
+//                     if i.inp_message.author != user {
+//                         continue;
+//                     }
+//                     if i.header_message.as_ref().unwrap().id == message.id {
+//                         match Buttons::from(c.custom_id.as_str()) {
+//                             Buttons::Delete => {i.delete(&ctx).await;}
+//                             // Buttons::Pod(_, n) => {i.pod_messages[n].send_message(ctx, message.channel_id).await.unwrap();},
+//                             _ => {}
+//                         }
+//                     } else {
+//                         for j in i.pod_messages.iter_mut() {
+//                             if j.message.is_some() && j.message.as_ref().unwrap().id == message.id {
+//                                 match Buttons::from(c.custom_id.as_str()) {
+//                                     Buttons::Next => {
+//                                         if j.curr_spod == (j.pod.subpods.len()-1) {
+//                                             j.change_spod(&ctx, 0).await.unwrap();
+//                                         } else {
+//                                             j.change_spod(&ctx, j.curr_spod+1).await.unwrap();
+//                                         }
+//                                     },
+//                                     Buttons::Prev => {
+//                                         if j.curr_spod == 0 {
+//                                             j.change_spod(&ctx, j.pod.subpods.len() -1).await.unwrap();
+//                                         } else {
+//                                             j.change_spod(&ctx, j.curr_spod-1).await.unwrap();
+//                                         }
+//                                     },
+//                                     Buttons::Delete => {
+//                                         j.delete_message(&ctx).await.unwrap();
+//                                     },
+//                                     _ => {}
+//                                 }
+//                             }
+//                         }
+//                     }
+//                 }
                 
-            }
-        },
-        ComponentType::SelectMenu => {
-            let wms_lock = {
-                let data_read = ctx.data.read().await;
-                data_read.get::<WolframMessages>().expect("Oops!").clone()  //TODO: Error handling
-            };
+//             }
+//         },
+//         ComponentType::SelectMenu => {
+//             let wms_lock = {
+//                 let data_read = ctx.data.read().await;
+//                 data_read.get::<WolframMessages>().expect("Oops!").clone()  //TODO: Error handling
+//             };
 
-            {
-                let mut wms = wms_lock.write().await;
-                wms.make_contiguous();
+//             {
+//                 let mut wms = wms_lock.write().await;
+//                 wms.make_contiguous();
                 
-                for i in wms.iter_mut() {
-                    if i.inp_message.author != user {
-                        continue;
-                    }
-                    if i.header_message.as_ref().unwrap().id == message.id {
-                        for v in c.values.iter() {
-                            let pod_re = Regex::new(r"^POD(?P<n>\d+)").unwrap();
-                            if let Some(cap) = pod_re.captures(v) {
-                                if let Some(n) = cap.name("n") {
-                                    let n = n.as_str().parse::<usize>().unwrap();
-                                    i.pod_messages[n].send_message(ctx, message.channel_id).await.unwrap();
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        },
-        _ => {}
-    }
+//                 for i in wms.iter_mut() {
+//                     if i.inp_message.author != user {
+//                         continue;
+//                     }
+//                     if i.header_message.as_ref().unwrap().id == message.id {
+//                         for v in c.values.iter() {
+//                             let pod_re = Regex::new(r"^POD(?P<n>\d+)").unwrap();
+//                             if let Some(cap) = pod_re.captures(v) {
+//                                 if let Some(n) = cap.name("n") {
+//                                     let n = n.as_str().parse::<usize>().unwrap();
+//                                     i.pod_messages[n].send_message(&ctx, message.channel_id).await.unwrap();
+//                                 }
+//                             }
+//                         }
+//                     }
+//                 }
+//             }
+//         },
+//         _ => {}
+//     }
 
-}
+// }
 
 #[cfg_attr(debug_assertions, derive(Debug))]
 #[derive(Serialize, Deserialize, Clone)]
@@ -269,8 +278,12 @@ impl QueryResult {
 
         let result = reqwest::get(url).await?
             .json::<serde_json::Value>().await?;
+
+        let mut error = false;
         
-        let error = result["queryresult"]["error"].as_bool().unwrap();
+        if let Some(b) = result["queryresult"]["error"].as_bool() {
+            error = b;
+        }
         
         let mut pods = vec![];
         
@@ -412,7 +425,11 @@ impl WolfMessage {
                     }
                 }
                 e.footer(|f| {
-                    f.icon_url(self.inp_message.author.avatar_url().unwrap());
+                    if let Some(u) = self.inp_message.author.avatar_url() {
+                        f.icon_url(u);
+                    } else {
+                        f.icon_url(self.inp_message.author.default_avatar_url());
+                    }
                     f.text(format!("Requested by {}#{}", self.inp_message.author.name, self.inp_message.author.discriminator));
                     f
                 });
@@ -489,14 +506,14 @@ impl PodMessage {
                 })
             });
             m
-        }).await.unwrap());
+        }).await?);
 
         Ok(())
     }
     
     async fn delete_message(&mut self, ctx: &Context) -> Result<(), errors::Error> {
         if let Some(m) = self.message.as_ref() {
-            m.delete(ctx).await.unwrap();
+            m.delete(ctx).await?;
             self.message = None;
         }
         Ok(())
@@ -511,10 +528,233 @@ impl PodMessage {
                     e
                 });
                 m
-            }).await.unwrap();
+            }).await?;
             self.curr_spod = spod;
         }
         Ok(())
+    }
+}
+
+#[async_trait]
+impl Editable for WolfMessage {
+    async fn edit(&mut self, ctx: &Context) -> Result<(), errors::Error> {
+        let old_m = self.header_message.clone();
+        self.delete(&ctx).await;
+
+        lazy_static! {
+            static ref WOLFRAM_RE: Regex = Regex::new(format!(r"^{}wolfram (?P<args>.*)$", PREFIX).as_str()).unwrap();
+            static ref ALIAS_RE: Regex = Regex::new(format!(r"^{}w (?P<args>.*)$", PREFIX).as_str()).unwrap();
+        };
+
+        let opts = vec![
+            Opt::Format("image".to_string()),
+            Opt::Output("json".to_string()),
+        ];
+
+        let inp_message = self.inp_message.channel_id.message(&ctx, self.inp_message.id).await?;
+
+        let mut arg = "";
+
+        if let Some(c) = WOLFRAM_RE.captures(&inp_message.content) {
+            arg = c.name("args").unwrap().as_str();
+        } else if let Some(c) = ALIAS_RE.captures(&inp_message.content) {
+            arg = c.name("args").unwrap().as_str();
+        }
+
+        let new_w = QueryResult::new(Opt::Input(arg.to_string()), opts).await?;
+        let mut new_wm = WolfMessage::new(new_w.clone(), inp_message.clone(), new_w.pods).await;
+
+        self = &mut new_wm;
+        self.send_messages(&ctx).await;
+
+        let interactables_lock = {
+            let data_read = ctx.data.read().await;
+            data_read.get::<Interactables>().expect("Oops!").clone() //TODO: Error handling
+        };
+
+        {
+            let mut interactables = interactables_lock.write().await;
+            interactables.make_contiguous();
+
+            let mut pos: Option<usize> = None;
+            
+            'outer: for (p, i) in interactables.iter().enumerate() {
+                for j in i.get_response_message_id() {
+                    if let Some(m) = &old_m {
+                        if m.id == j {
+                            pos = Some(p);
+                            break 'outer;
+                        }
+                    }
+                }
+            }
+
+            if let Some(p) = pos {
+                interactables[p] = Box::new(self.clone());
+            }
+        }
+        
+        return Ok(())
+    }
+
+    fn get_input_message_id(&self) -> serenity::model::id::MessageId {
+        self.inp_message.id.clone()
+    }
+
+    fn get_response_message_id(&self) -> Vec<MessageId> {
+        let mut retvec: Vec<MessageId> = vec![];
+        if let Some(m) = &self.header_message {
+            retvec.push(m.id.clone());
+        }
+        for i in &self.pod_messages {
+            if let Some(m) = &i.message {
+                retvec.push(m.id.clone());
+            }
+        }
+        return retvec;
+    }
+
+    fn get_command_pattern(&self) -> Regex {
+        lazy_static! {
+            static ref WOLFRAM_RE: Regex = Regex::new(format!(r"^{}wolfram .*$", PREFIX).as_str()).unwrap();
+            static ref ALIAS_RE: Regex = Regex::new(format!(r"^{}w .*$", PREFIX).as_str()).unwrap();
+        };
+
+        if WOLFRAM_RE.is_match(&self.inp_message.content) {
+            return WOLFRAM_RE.clone();
+        } else if ALIAS_RE.is_match(&self.inp_message.content) {
+            return ALIAS_RE.clone();
+        } else {
+            return WOLFRAM_RE.clone();
+        }
+    }
+}
+
+#[async_trait]
+impl Interactable for WolfMessage {
+    async fn interaction_respond(&mut self, ctx: &Context, interaction: Interaction) -> Result<(), errors::Error> {
+        let old_m = self.header_message.clone();
+        let component_interaction = match interaction {
+            Interaction::MessageComponent(m) => m,
+            _ => {return Ok(())}
+        };
+        
+        component_interaction.create_interaction_response(ctx, |r|{
+            r.kind(InteractionResponseType::UpdateMessage);
+            r.interaction_response_data(|d|{
+                d.flags(InteractionApplicationCommandCallbackDataFlags::EPHEMERAL);
+                d
+            });
+            r
+        }).await?;
+
+        let message = match &component_interaction.message {
+            InteractionMessage::Regular(m) => m,
+            InteractionMessage::Ephemeral(_) => {return Ok(())}
+        };
+
+        if self.inp_message.author != component_interaction.user {
+            return Ok(())
+        }
+
+        match &component_interaction.data.component_type {
+            ComponentType::Button => {
+                for i in self.pod_messages.iter_mut() {
+                    if i.message.is_some() && i.message.as_ref().unwrap().id == message.id {
+                        match Buttons::from(component_interaction.data.custom_id.as_str()) {
+                            Buttons::Delete => {
+                                i.delete_message(&ctx).await?;
+                            },
+                            Buttons::Next => {
+                                if i.curr_spod == (i.pod.subpods.len()-1) {
+                                    i.change_spod(&ctx, 0).await?;
+                                } else {
+                                    i.change_spod(&ctx, i.curr_spod+1).await?;
+                                }
+                            },
+                            Buttons::Prev => {
+                                if i.curr_spod == 0 {
+                                    i.change_spod(&ctx, i.pod.subpods.len()-1).await?;
+                                } else {
+                                    i.change_spod(&ctx, i.curr_spod-1).await?;
+                                }
+                            },
+                            _ => {}
+                        }
+                    }
+                }
+
+                if self.header_message.is_some() && self.header_message.as_ref().unwrap().id == message.id {
+                    match Buttons::from(component_interaction.data.custom_id.as_str()) {
+                        Buttons::Delete => {
+                            self.delete(&ctx).await;
+                        },
+                        _ => {}
+                    }
+                }
+            },
+            ComponentType::SelectMenu => {
+                if self.header_message.is_some() && self.header_message.as_ref().unwrap().id == message.id {
+                    for v in &component_interaction.data.values {
+                        lazy_static! {
+                            static ref POD_RE: Regex = Regex::new(r"^POD(?P<n>\d+)").unwrap();
+                        }; 
+                        if let Some(cap) = POD_RE.captures(&v) {
+                            if let Some(n) = cap.name("n") {
+                                let n = n.as_str().parse::<usize>().unwrap();
+                                self.pod_messages[n].send_message(&ctx, message.channel_id).await?;
+                            }
+                        }
+                    }
+                }
+            },
+            _ => {}
+        }
+
+        let editables_lock = {
+            let data_read = ctx.data.read().await;
+            data_read.get::<Editables>().expect("Oops!").clone() //TODO: Error handling
+        };
+
+        {
+            let mut editables = editables_lock.write().await;
+            editables.make_contiguous();
+
+            let mut pos: Option<usize> = None;
+            
+            'outer: for (p, i) in editables.iter().enumerate() {
+                for j in i.get_response_message_id() {
+                    if let Some(m) = &old_m {
+                        if m.id == j {
+                            pos = Some(p);
+                            break 'outer;
+                        }
+                    }
+                }
+                if self.inp_message.id == i.get_input_message_id() {
+                    pos = Some(p);
+                }
+            }
+
+            if let Some(p) = pos {
+                editables[p] = Box::new(self.clone());
+            }
+        }
+        
+        Ok(())
+    }
+
+    fn get_response_message_id(&self) -> Vec<MessageId> {
+        let mut retvec: Vec<MessageId> = vec![];
+        if let Some(m) = &self.header_message {
+            retvec.push(m.id.clone());
+        }
+        for i in &self.pod_messages {
+            if let Some(m) = &i.message {
+                retvec.push(m.id.clone());
+            }
+        }
+        return retvec;
     }
 }
 
@@ -526,7 +766,7 @@ pub async fn wolfram(ctx: &Context, msg: &Message, arg: Args) -> CommandResult {
         Some(r) => Ok(r),
         None => {
             let err = errors::Error::ArgError(1, 0);
-            errors::err_msg(ctx, &msg.channel_id, Some(&lm), &msg.author, &err).await?;
+            errors::err_msg(ctx, &msg.channel_id, Some(&lm), Some(&msg.author), &err).await?;
             Err(err)
         }
     }?;
@@ -536,7 +776,7 @@ pub async fn wolfram(ctx: &Context, msg: &Message, arg: Args) -> CommandResult {
         Opt::Output("json".to_string()),
         ];
     
-    let w = QueryResult::new(Opt::Input(query.to_string()), opts).await.unwrap();
+    let w = QueryResult::new(Opt::Input(query.to_string()), opts).await?;
     
     let mut wm = WolfMessage::new(w.clone(), msg.clone(), w.pods).await;
 
@@ -544,13 +784,14 @@ pub async fn wolfram(ctx: &Context, msg: &Message, arg: Args) -> CommandResult {
     
     if wm.result.json["error"].is_object() {
         if let Value::Object(a) = &wm.result.json["error"] {
-            errors::err_msg(ctx, &msg.channel_id, Some(&lm), &msg.author, &errors::Error::WolfError(a["msg"].to_string(), a["code"].to_string().parse::<u32>().unwrap())).await.unwrap();
+            errors::err_msg(ctx, &msg.channel_id, Some(&lm), Some(&msg.author), &errors::Error::WolfError(a["msg"].to_string(), a["code"].to_string().parse::<u32>().unwrap())).await?;
         } 
     } else {
         wm.send_messages(ctx).await;
     }
 
-    wolf_messages_pusher(ctx, wm).await;
+    push_to_editables(&ctx, Box::new(wm.clone())).await;
+    push_to_interactables(&ctx, Box::new(wm.clone())).await;
     
     Ok(())
 }

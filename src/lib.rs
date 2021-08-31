@@ -13,7 +13,6 @@ use serenity::{
     prelude::{Client, Context, EventHandler, RwLock, TypeMapKey},
     framework::standard::{
         macros::{
-            group,
             hook,
             help,
         },
@@ -32,22 +31,42 @@ use std::{
         VecDeque,
     },
     sync::Arc,
+    pin::Pin,
+};
+use futures::{
+    Future,
+    future::join_all
 };
 use config::Config;
 #[macro_use]
 extern crate lazy_static;
 
 pub mod botmods;
-use botmods::general::*;
-use botmods::markup::*;
-use botmods::wolfram::*;
+use botmods::utils::{
+    Editable,
+    Interactable,
+};
 
 pub static PREFIX: &str = "---";
+pub static EDIT_BUFFER_SIZE: usize = 10;
+pub static INTERACT_BUFFER_SIZE: usize = 10;
 
 pub struct ShardManagerContainer;
 
 impl TypeMapKey for ShardManagerContainer {
     type Value = Arc<Mutex<ShardManager>>;
+}
+
+pub struct Editables;
+
+impl TypeMapKey for Editables {
+    type Value = Arc<RwLock<VecDeque<Box<dyn Editable + Send + Sync>>>>;
+}
+
+pub struct Interactables;
+
+impl TypeMapKey for Interactables {
+    type Value = Arc<RwLock<VecDeque<Box<dyn Interactable + Send + Sync>>>>;
 }
 
 lazy_static!{
@@ -64,37 +83,70 @@ impl EventHandler for Handler {
     }
     
     async fn message(&self, ctx: Context, msg: Message) {
-        match inline_latex(&ctx, &msg).await {
-            Ok(_) => {return},
-            Err(_) => {return}
-        } //TODO: Error handle
+        let mut watcher_futures: Vec<Pin<Box<dyn Future<Output = CommandResult> + Send>>> = vec![];
+        for m in botmods::MODS.iter() {
+            for watcher in &m.watchers {
+                watcher_futures.push(watcher(ctx.clone(), msg.clone()));
+            }
+        }
+        join_all(watcher_futures).await;
     }
     
     async fn message_update(&self, ctx: Context, _: Option<Message>, _: Option<Message>, upd_event: MessageUpdateEvent) {
-        if upd_event.content.is_some() {
-            botmods::utils::edit_handler(&ctx, &upd_event).await;
+        let editables_lock = {
+            let data_read = ctx.data.read().await;
+            data_read.get::<Editables>().expect("Oops!").clone() //TODO: Error handling
+        };
+
+        {
+            let mut editables = editables_lock.write().await;
+            editables.make_contiguous();
+            
+            for i in editables.iter_mut() {
+                if i.get_input_message_id() == upd_event.id {
+                    i.edit(&ctx).await.unwrap();
+                    return
+                }
+            }
         }
+
+        let mut editor_futures: Vec<Pin<Box<dyn Future<Output = ()> + Send>>> = vec![];
+        for m in botmods::MODS.iter() {
+            for editor in &m.editors {
+                editor_futures.push(editor(ctx.clone(), upd_event.clone()));
+            }
+        }
+        join_all(editor_futures).await;
     }
     
     async fn interaction_create(&self, ctx: Context, interaction: Interaction) {
-        botmods::utils::component_interaction_handler(&ctx, interaction).await;
+        let interactables_lock = {
+            let data_read = ctx.data.read().await;
+            data_read.get::<Interactables>().expect("Oops!").clone() //TODO: Error handling
+        };
+
+        {
+            let mut interactables = interactables_lock.write().await;
+            interactables.make_contiguous();
+            
+            for i in interactables.iter_mut() {
+                for j in i.get_response_message_id() {
+                    if interaction.clone().message_component().is_some() && interaction.clone().message_component().unwrap().message.regular().is_some() && interaction.clone().message_component().unwrap().message.regular().unwrap().id == j {
+                        i.interaction_respond(&ctx, interaction.clone()).await.unwrap();
+                    }
+                }
+            }
+        }
+
+        let mut interactor_futures: Vec<Pin<Box<dyn Future<Output = ()> + Send>>> = vec![];
+        for m in botmods::MODS.iter() {
+            for interactor in &m.interactors {
+                interactor_futures.push(interactor(ctx.clone(), interaction.clone()));
+            }
+        }
+        join_all(interactor_futures).await;
     }
 }
-
-#[group]
-#[summary = "General commands"]
-#[commands(ping, about, invite)]
-struct General;
-
-#[group]
-#[summary = "Math formatting commands"]
-#[commands(ascii, latex)]
-struct Math;
-
-#[group]
-#[summary = "Wolfram commands"]
-#[commands(wolfram)]
-struct Wolfram;
 
 #[hook]
 pub async fn unknown_cmd(ctx: &Context, msg: &Message, u_cmd: &str) {
@@ -124,6 +176,6 @@ async fn help(
 pub async fn load_queues(c: &Client) {
     let mut data = c.data.write().await;
     data.insert::<ShardManagerContainer>(Arc::clone(&c.shard_manager));
-    data.insert::<MathMessages>(Arc::new(RwLock::new(VecDeque::with_capacity(botmods::markup::EDIT_BUFFER_SIZE))));
-    data.insert::<WolframMessages>(Arc::new(RwLock::new(VecDeque::with_capacity(botmods::wolfram::EDIT_BUFFER_SIZE))));
+    data.insert::<Editables>(Arc::new(RwLock::new(VecDeque::with_capacity(EDIT_BUFFER_SIZE))));
+    data.insert::<Interactables>(Arc::new(RwLock::new(VecDeque::with_capacity(INTERACT_BUFFER_SIZE))));
 }
