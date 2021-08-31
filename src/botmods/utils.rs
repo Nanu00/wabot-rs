@@ -95,7 +95,6 @@ pub enum Buttons {
     Delete,
     Next,
     Prev,
-    Pod(String, usize),
     Invalid     // Not for actual use
 }
 
@@ -105,14 +104,6 @@ impl ToString for Buttons {
             Buttons::Delete => "Delete".to_string(),
             Buttons::Next => "Next".to_string(),
             Buttons::Prev => "Previous".to_string(),
-            Buttons::Pod(s, _) => {
-                let mut s = s.to_string();
-                if s.len() > 20 {
-                    s.truncate(17);
-                    s.push_str("...");
-                }
-                s.to_string()
-            }
             Buttons::Invalid => "".to_string(),
         }
     }
@@ -120,14 +111,6 @@ impl ToString for Buttons {
 
 impl From<&str> for Buttons {
     fn from(s: &str) -> Buttons {
-        let i = Regex::new(r"^POD([[:digit:]]+)").unwrap();
-        if let Some(c) = i.captures(s) {
-            if let Some(m) = c.get(1) {
-                if let Ok(n) = m.as_str().parse::<usize>() {
-                    return Buttons::Pod("".to_string(), n)
-                }
-            }
-        }
         match s {
             "DEL" => Buttons::Delete,
             "NEX" => Buttons::Next,
@@ -143,7 +126,6 @@ impl Buttons {
             Buttons::Delete => "DEL".to_string(),
             Buttons::Next => "NEX".to_string(),
             Buttons::Prev => "PRE".to_string(),
-            Buttons::Pod(_, n) => format!("POD{}", n),
             Buttons::Invalid => "".to_string(),
         }
     }
@@ -153,8 +135,14 @@ impl Buttons {
             Buttons::Delete => ReactionType::Unicode("🗑️".to_string()),
             Buttons::Next => ReactionType::Unicode("\u{27a1}".to_string()),
             Buttons::Prev => ReactionType::Unicode("\u{2b05}".to_string()),
-            Buttons::Pod(_, _) => ReactionType::Unicode("\u{1f48a}".to_string()),
             Buttons::Invalid => ReactionType::Unicode("\u{1f6ab}".to_string()),
+        }
+    }
+
+    fn buttonstyle(&self) -> ButtonStyle {
+        match &self {
+            Buttons::Delete => ButtonStyle::Danger,
+            _ => ButtonStyle::Primary,
         }
     }
 
@@ -162,8 +150,9 @@ impl Buttons {
         let label = self.to_string();
         let id = self.to_id_string();
         let emoji = self.to_emoji();
-        |b| {
-            b.style(ButtonStyle::Primary);
+        let style = self.buttonstyle();
+        move |b| {
+            b.style(style);
             b.label(label);
             b.custom_id(id);
             b.emoji(emoji);
