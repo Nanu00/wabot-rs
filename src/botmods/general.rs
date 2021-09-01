@@ -27,9 +27,9 @@ lazy_static!(
     pub static ref MOD_GENERAL: BotModule = BotModule {
         command_group: &GENERAL_GROUP,
         command_pattern: vec![
-            Regex::new(format!(r"^{}ping$", PREFIX).as_str()).unwrap(),
-            Regex::new(format!(r"^{}about$", PREFIX).as_str()).unwrap(),
-            Regex::new(format!(r"^{}invite$", PREFIX).as_str()).unwrap(),
+            Regex::new(format!(r"^{}ping$", PREFIX.as_str()).as_str()).unwrap(),
+            Regex::new(format!(r"^{}about$", PREFIX.as_str()).as_str()).unwrap(),
+            Regex::new(format!(r"^{}invite$", PREFIX.as_str()).as_str()).unwrap(),
         ],
         editors: vec![],
         interactors: vec![],

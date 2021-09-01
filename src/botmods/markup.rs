@@ -62,8 +62,8 @@ lazy_static!(
     pub static ref MOD_MARKUP: BotModule = BotModule {
         command_group: &MARKUP_GROUP,
         command_pattern: vec![
-            Regex::new(format!(r"^{}latex .*$", PREFIX).as_str()).unwrap(),
-            Regex::new(format!(r"^{}ascii .*$", PREFIX).as_str()).unwrap(),
+            Regex::new(format!(r"^{}latex .*$", PREFIX.as_str()).as_str()).unwrap(),
+            Regex::new(format!(r"^{}ascii .*$", PREFIX.as_str()).as_str()).unwrap(),
             Regex::new(r"(\$.*\$)|(\\[.*\\])|(\\(.*\\))").unwrap()
         ],
         editors: vec![
@@ -94,13 +94,13 @@ pub enum CmdType {
 
 lazy_static!{
     pub static ref EDITMATCH: Vec<(Regex, CmdType)> = vec![
-        (Regex::new(format!(r"^{}latex (?P<i>.*)$", PREFIX).as_str()).unwrap(), CmdType::Latex),
-        (Regex::new(format!(r"^{}ascii (?P<i>.*)$", PREFIX).as_str()).unwrap(), CmdType::Ascii),
+        (Regex::new(format!(r"^{}latex (?P<i>.*)$", PREFIX.as_str()).as_str()).unwrap(), CmdType::Latex),
+        (Regex::new(format!(r"^{}ascii (?P<i>.*)$", PREFIX.as_str()).as_str()).unwrap(), CmdType::Ascii),
         (Regex::new(r"(\$.*\$)|(\\[.*\\])|(\\(.*\\))").unwrap(), CmdType::Inline),
     ];
     pub static ref COMPMATCH: Vec<Regex> = vec![
-        Regex::new(format!(r"^{}latex .*$", PREFIX).as_str()).unwrap(),
-        Regex::new(format!(r"^{}ascii .*$", PREFIX).as_str()).unwrap(),
+        Regex::new(format!(r"^{}latex .*$", PREFIX.as_str()).as_str()).unwrap(),
+        Regex::new(format!(r"^{}ascii .*$", PREFIX.as_str()).as_str()).unwrap(),
         Regex::new(r"(\$.*\$)|(\\[.*\\])|(\\(.*\\))").unwrap(),
     ];
 }
@@ -118,8 +118,8 @@ fn edit_handler_wrap(ctx: Context, msg_upd_event: MessageUpdateEvent) -> Pin<Box
 async fn edit_handler(ctx: Context, msg_upd_event: MessageUpdateEvent) {
     lazy_static! {
         static ref INLINE_RE: fancy_regex::Regex = fancy_regex::Regex::new(r"((\${1,2})(?![\s$]).+(?<![\s$])\2)|(\\[.*\\])|(\\(.*\\))").unwrap();
-        static ref LATEX_RE: Regex = Regex::new(format!(r"^{}latex (?P<args>.*)$", PREFIX).as_str()).unwrap();
-        static ref ASCII_RE: Regex = Regex::new(format!(r"^{}ascii (?P<args>.*)$", PREFIX).as_str()).unwrap();
+        static ref LATEX_RE: Regex = Regex::new(format!(r"^{}latex (?P<args>.*)$", PREFIX.as_str()).as_str()).unwrap();
+        static ref ASCII_RE: Regex = Regex::new(format!(r"^{}ascii (?P<args>.*)$", PREFIX.as_str()).as_str()).unwrap();
     };
 
     let inp_message = match msg_upd_event.channel_id.message(&ctx, msg_upd_event.id).await {
@@ -324,8 +324,8 @@ impl Editable for MathSnip {
         if let Some(m) = &self.message {
             lazy_static! {
                 static ref INLINE_RE: fancy_regex::Regex = fancy_regex::Regex::new(r"((\${1,2})(?![\s$]).+(?<![\s$])\2)|(\\[.*\\])|(\\(.*\\))").unwrap();
-                static ref LATEX_RE: Regex = Regex::new(format!(r"^{}latex (?P<args>.*)$", PREFIX).as_str()).unwrap();
-                static ref ASCII_RE: Regex = Regex::new(format!(r"^{}ascii (?P<args>.*)$", PREFIX).as_str()).unwrap();
+                static ref LATEX_RE: Regex = Regex::new(format!(r"^{}latex (?P<args>.*)$", PREFIX.as_str()).as_str()).unwrap();
+                static ref ASCII_RE: Regex = Regex::new(format!(r"^{}ascii (?P<args>.*)$", PREFIX.as_str()).as_str()).unwrap();
             };
 
             let old_m = m.clone();
@@ -400,8 +400,8 @@ impl Editable for MathSnip {
     fn get_command_pattern(&self) -> Regex {
             lazy_static! {
                 static ref INLINE_RE: fancy_regex::Regex = fancy_regex::Regex::new(r"((\${1,2})(?![\s$]).+(?<![\s$])\2)|(\\[.*\\])|(\\(.*\\))").unwrap();
-                static ref LATEX_RE: Regex = Regex::new(format!(r"^{}latex (?P<args>.*)$", PREFIX).as_str()).unwrap();
-                static ref ASCII_RE: Regex = Regex::new(format!(r"^{}ascii (?P<args>.*)$", PREFIX).as_str()).unwrap();
+                static ref LATEX_RE: Regex = Regex::new(format!(r"^{}latex (?P<args>.*)$", PREFIX.as_str()).as_str()).unwrap();
+                static ref ASCII_RE: Regex = Regex::new(format!(r"^{}ascii (?P<args>.*)$", PREFIX.as_str()).as_str()).unwrap();
             };
 
             if INLINE_RE.captures(&self.inp_message.content).unwrap().is_some() && INLINE_RE.captures(&self.inp_message.content).unwrap().unwrap().name("args").is_some() {
@@ -583,7 +583,7 @@ pub fn inline_latex_wrap(ctx: Context, msg: Message) -> Pin<Box<dyn Future<Outpu
 
 async fn inline_latex(ctx: Context, msg: Message) -> CommandResult {
     let re_tex = fancy_regex::Regex::new(r"((\${1,2})(?![\s$]).+(?<![\s$])\2)|(\\[.*\\])|(\\(.*\\))").unwrap();
-    let re_cmd = Regex::new(format!("{}{}{}", r"(^", PREFIX, r"latex.*)|(¯\\\\_(ツ)\\_/¯)").as_str()).unwrap();
+    let re_cmd = Regex::new(format!("{}{}{}", r"(^", PREFIX.as_str(), r"latex.*)|(¯\\\\_(ツ)\\_/¯)").as_str()).unwrap();
     
     if re_tex.is_match(&msg.content).unwrap() && !re_cmd.is_match(&msg.content) {
         let lm = loading_msg(&ctx, &msg.channel_id).await?;

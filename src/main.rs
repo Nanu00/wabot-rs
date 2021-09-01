@@ -17,11 +17,11 @@ use wabot::{
 #[tokio::main]
 async fn main() {
     
-    let token = {CONFIG.read().await.get::<String>("discord_token").unwrap()};
-    let application_id = {CONFIG.read().await.get::<u64>("discord_appid").unwrap()};
+    let token = &CONFIG.discord_token;
+    let application_id = CONFIG.discord_appid;
 
     let mut framework = StandardFramework::new()
-        .configure(|c| c.prefix(PREFIX))
+        .configure(|c| c.prefix(&PREFIX))
         .help(&HELP)
         .unrecognised_command(unknown_cmd);
 
@@ -29,7 +29,7 @@ async fn main() {
         framework.group_add(m.command_group);
     }
 
-    let mut bot = match Client::builder(&token)
+    let mut bot = match Client::builder(token)
         .event_handler(Handler)
         .framework(framework)
         .application_id(application_id)

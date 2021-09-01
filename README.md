@@ -33,22 +33,29 @@ cargo run
 ```
 starts the bot.
 
-The bot reads the file `config.toml` for all its variables.
-Look at [`config-template.toml`](config-template.toml) to look at an example.
+## Config files
+The bot expects `~/.config/wally/` to exist, along with a `config.ron` file containing the Discord token and application id.
+Apart from `config.ron`, there are also per-module config files.
+
+The file format of the config files is [RON](https://docs.rs/ron/0.6.4/ron/). The format is defined inside `lib.rs` and inside the module if needs a config.
 
 ## Goals
 ### Priority
 + [x] Latex snippets
 + [x] AsciiMath snippets
 + [x] Images from Wolfram|Alpha
++ [ ] Logging
++ [ ] Slash commands
 ### *Might* implement
 + [ ] Basic calculator
-+ [ ] Graphing
 
 ### Not implementing
 + Wolfram|Alpha to AsciiMath/MathML
   + The ASCIIMath recieved from the API is a pain to parse
   + Some of the symbols in the MathML recieved from the API are not properly displayed by MathJax
++ Graphing
+  + Doesn't really fit what the bot is supposed to do
+  + Can already be done using Wolfram|Alpha
 
 ## Contributing
 Pull requestes are welcome!

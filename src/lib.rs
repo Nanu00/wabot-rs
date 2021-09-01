@@ -32,12 +32,14 @@ use std::{
     },
     sync::Arc,
     pin::Pin,
+    fs::File,
 };
 use futures::{
     Future,
     future::join_all
 };
-use config::Config;
+use ron::de::from_reader;
+use serde::Deserialize;
 #[macro_use]
 extern crate lazy_static;
 
@@ -47,9 +49,33 @@ use botmods::utils::{
     Interactable,
 };
 
-pub static PREFIX: &str = "---";
+lazy_static!{
+    pub static ref CONFIG_DIR: String = format!("{}/.config/wally", env!("HOME"));
+    pub static ref CONFIG: Config = load_config();
+    pub static ref PREFIX: String = CONFIG.prefix.clone();
+}
 pub static EDIT_BUFFER_SIZE: usize = 10;
 pub static INTERACT_BUFFER_SIZE: usize = 10;
+
+#[derive(Deserialize)]
+pub struct Config {
+    pub discord_token: String,
+    pub discord_appid: u64,
+    prefix: String
+}
+
+fn load_config() -> Config {
+    let path = format!("{}/config.ron", CONFIG_DIR.as_str());
+    let f = File::open(&path).expect("Failed reading config file!");
+    let config: Config = match from_reader(f) {
+        Ok(x) => x,
+        Err(e) => {
+            eprintln!("Failed parsing config file:\n{}", e);
+            std::process::exit(1);
+        }
+    };
+    return config;
+}
 
 pub struct ShardManagerContainer;
 
@@ -69,17 +95,13 @@ impl TypeMapKey for Interactables {
     type Value = Arc<RwLock<VecDeque<Box<dyn Interactable + Send + Sync>>>>;
 }
 
-lazy_static!{
-    pub static ref CONFIG: RwLock<Config> = RwLock::new(Config::default().merge(config::File::with_name("config")).unwrap().clone());
-}
-
 pub struct Handler;
 
 #[async_trait]
 impl EventHandler for Handler {
     async fn ready(&self, ctx: Context, ready: Ready) {
         println!("Connected as {}", ready.user.name);
-        ctx.set_activity(Activity::listening(format!("{}help", PREFIX))).await;
+        ctx.set_activity(Activity::listening(format!("{}help", PREFIX.as_str()))).await;
     }
     
     async fn message(&self, ctx: Context, msg: Message) {

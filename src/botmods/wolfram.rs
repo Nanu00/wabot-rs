@@ -3,6 +3,7 @@ use std::{
     fmt::Display,
     fmt,
     pin::Pin,
+    fs::File,
 };
 use futures::Future;
 use crate::{
@@ -19,8 +20,8 @@ use crate::{
             push_to_interactables,
         },
     },
-    CONFIG,
     PREFIX,
+    CONFIG_DIR,
     Interactables,
     Editables
 };
@@ -59,14 +60,15 @@ use serde::{
     Serialize,
     Deserialize
 };
+use ron::de::from_reader;
 use lazy_static;
 
 lazy_static!(
     pub static ref MOD_WOLFRAM: BotModule = BotModule {
         command_group: &WOLFRAM_GROUP,
         command_pattern: vec![
-            Regex::new(format!(r"^{}wolfram .*$", PREFIX).as_str()).unwrap(),
-            Regex::new(format!(r"^{}w .*$", PREFIX).as_str()).unwrap(),
+            Regex::new(format!(r"^{}wolfram .*$", PREFIX.as_str()).as_str()).unwrap(),
+            Regex::new(format!(r"^{}w .*$", PREFIX.as_str()).as_str()).unwrap(),
         ],
         editors: vec![
             edit_handler_wrap,
@@ -77,6 +79,28 @@ lazy_static!(
         watchers: vec![],
     };
 );
+
+#[derive(Deserialize)]
+struct Config {
+    wolfram_appid: String,
+}
+
+fn load_config() -> Config {
+    let path = format!("{}/wolfram.ron", CONFIG_DIR.as_str());
+    let f = File::open(&path).expect("Failed reading config file!");
+    let config: Config = match from_reader(f) {
+        Ok(x) => x,
+        Err(e) => {
+            eprintln!("Failed parsing config file:\n{}", e);
+            std::process::exit(1);
+        }
+    };
+    return config;
+}
+
+lazy_static!{
+    static ref CONFIG: Config = load_config();
+}
 
 #[group]
 #[summary = "Wolfram commands"]
@@ -90,8 +114,8 @@ pub enum CmdType {
 
 lazy_static!{
     pub static ref EDITMATCH: Vec<(Regex, CmdType)> = vec![
-        (Regex::new(format!(r"^{}wolfram (?P<i>.*)$", PREFIX).as_str()).unwrap(), CmdType::Wolfram),
-        (Regex::new(format!(r"^{}w (?P<i>.*)$", PREFIX).as_str()).unwrap(), CmdType::Wolfram),
+        (Regex::new(format!(r"^{}wolfram (?P<i>.*)$", PREFIX.as_str()).as_str()).unwrap(), CmdType::Wolfram),
+        (Regex::new(format!(r"^{}w (?P<i>.*)$", PREFIX.as_str()).as_str()).unwrap(), CmdType::Wolfram),
     ];
 }
 
@@ -106,8 +130,8 @@ pub async fn edit_handler(ctx: Context, msg_upd_event: MessageUpdateEvent) {
     };
 
     lazy_static! {
-        static ref WOLFRAM_RE: Regex = Regex::new(format!(r"^{}wolfram (?P<args>.*)$", PREFIX).as_str()).unwrap();
-        static ref ALIAS_RE: Regex = Regex::new(format!(r"^{}w (?P<args>.*)$", PREFIX).as_str()).unwrap();
+        static ref WOLFRAM_RE: Regex = Regex::new(format!(r"^{}wolfram (?P<args>.*)$", PREFIX.as_str()).as_str()).unwrap();
+        static ref ALIAS_RE: Regex = Regex::new(format!(r"^{}w (?P<args>.*)$", PREFIX.as_str()).as_str()).unwrap();
     };
 
     let opts = vec![
@@ -269,9 +293,7 @@ pub struct QueryResult {
 
 impl QueryResult {
     async fn new(input: Opt, options: Vec<Opt>) -> Result<QueryResult, errors::Error> {
-        let appid = {CONFIG.read().await.get::<String>("w_appid").unwrap()};
-
-        let mut url = format!("https://api.wolframalpha.com/v2/query?appid={}&{}", &appid, input);
+        let mut url = format!("https://api.wolframalpha.com/v2/query?appid={}&{}", &CONFIG.wolfram_appid, input);
         for i in options.iter() {
             url = format!("{}&{}", url, i);
         }
@@ -542,8 +564,8 @@ impl Editable for WolfMessage {
         self.delete(&ctx).await;
 
         lazy_static! {
-            static ref WOLFRAM_RE: Regex = Regex::new(format!(r"^{}wolfram (?P<args>.*)$", PREFIX).as_str()).unwrap();
-            static ref ALIAS_RE: Regex = Regex::new(format!(r"^{}w (?P<args>.*)$", PREFIX).as_str()).unwrap();
+            static ref WOLFRAM_RE: Regex = Regex::new(format!(r"^{}wolfram (?P<args>.*)$", PREFIX.as_str()).as_str()).unwrap();
+            static ref ALIAS_RE: Regex = Regex::new(format!(r"^{}w (?P<args>.*)$", PREFIX.as_str()).as_str()).unwrap();
         };
 
         let opts = vec![
@@ -616,8 +638,8 @@ impl Editable for WolfMessage {
 
     fn get_command_pattern(&self) -> Regex {
         lazy_static! {
-            static ref WOLFRAM_RE: Regex = Regex::new(format!(r"^{}wolfram .*$", PREFIX).as_str()).unwrap();
-            static ref ALIAS_RE: Regex = Regex::new(format!(r"^{}w .*$", PREFIX).as_str()).unwrap();
+            static ref WOLFRAM_RE: Regex = Regex::new(format!(r"^{}wolfram .*$", PREFIX.as_str()).as_str()).unwrap();
+            static ref ALIAS_RE: Regex = Regex::new(format!(r"^{}w .*$", PREFIX.as_str()).as_str()).unwrap();
         };
 
         if WOLFRAM_RE.is_match(&self.inp_message.content) {
