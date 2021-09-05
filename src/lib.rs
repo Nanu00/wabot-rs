@@ -115,6 +115,10 @@ impl EventHandler for Handler {
     }
     
     async fn message_update(&self, ctx: Context, _: Option<Message>, _: Option<Message>, upd_event: MessageUpdateEvent) {
+        if upd_event.author.is_some() && upd_event.author.as_ref().unwrap().bot {
+            return
+        }
+
         let editables_lock = {
             let data_read = ctx.data.read().await;
             data_read.get::<Editables>().expect("Oops!").clone() //TODO: Error handling
